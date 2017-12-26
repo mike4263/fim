@@ -6,20 +6,32 @@ import uuid as uuid_stdlib
 """ fim - fortune improved """
 
 
-class ContentSource():
+class BaseImporter():
     """ Base class for all of the content type """
 
     def __init__(self, uri):
         pass
 
     def process(self):
-        """ yields Epigrams """
         yield None
 
 
-class FortuneFile(ContentSource):
+class FortuneFileImporter(BaseImporter):
     def __init__(self, uri):
         pass
+
+    def process(self):
+        raise NotImplementedError()
+
+
+class SoloEpigramImporter(BaseImporter):
+    """ Add a single epigram """
+
+    def __init__(self, epigram):
+        self._epigram = epigram
+
+    def process(self):
+        yield self._epigram
 
 
 class Epigram():
@@ -34,10 +46,9 @@ class Epigram():
         BTW 'epigram' was directly lifted from the fortune man page *shrugs*.
 
         Epigram contain the following items:
-            - content - plain text content (5k limit characters)
-            - category - Epigram belong to a single Category
-            - uuid - unique 128 byte character string.  This is the epigram
-                        primary key
+          - epigram_uuid - unique 128 byte character string.
+          - category_id - Epigram belong to a single Category
+          - content - plain text content (5k limit characters)
 
         These field names directly map to the EPIGRAM table in the DB.
 
@@ -72,6 +83,67 @@ class Epigram():
     @property
     def uuid(self):
         return self._uuid
+
+
+class EpigramStore():
+    """ This class encapsulates the internal datastore (SQLite)"""
+
+    NO_RESULTS_FOUND = Epigram("Your princess is in another castle. ", "error")
+    GENERAL_ERROR = Epigram("Always bring a towel", "error")
+
+    def __init__(self, filename, skip_dupes=False, _epigram_cache=[]):
+        """ Construct the store (connect to db, optionally retrieve all rows)
+
+            Positional Arguments:
+            filename (str) - the path to the SQLite database
+
+            Optional Params:
+            skip_dupes (bool) - check each new epigram using fuzzy string
+                                    matching.  Requires all existing records
+                                    to be loaded into memory.
+
+            Private Class Variables:
+              _epigram_cache (list of Epigram) - internal loaded cached
+        """
+        raise NotImplementedError()
+
+    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, category=None):
+        """ Get a epigram considering filter criteria and weight rules
+
+            Keyword Arguments:
+            uuid (str) - return this specific epigram
+            internal_fetch_ratio (int) - see the README for info on the
+                                                  weighting algorithm
+
+            Return:
+            An Epigram (obviously)
+        """
+        raise NotImplementedError()
+
+    def add_epigram(self, epigram):
+        """ Add an epigram to the store
+
+        Positional Arguments:
+        epigram - the epigram to add
+
+        Returns: the newly generated epigram
+
+        """
+        raise NotImplementedError()
+
+    def add_epigram_via_importer(self, importer):
+        """ Method that does stuff
+
+            Positional Arguments:
+            content (str) - the plain text content of the epigram
+
+            Keyword Arguments:
+            uuid (str) - a unique id for the item (generated if blank)
+
+            Return:
+            object (str) - desc
+        """
+        raise NotImplementedError()
 
 
 def main():
