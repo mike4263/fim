@@ -7,6 +7,19 @@ import logging
 import sqlite3
 import os
 from pudb import set_trace
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import scoped_session, sessionmaker, relationship
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    ForeignKey,
+    DateTime,
+    Sequence,
+    Float
+)
+import datetime
 
 
 """ fim - fortune improved """
@@ -17,7 +30,11 @@ log.addHandler(logging.NullHandler())
 # logging.basicConfig(level=logging.DEBUG)
 
 
-class Bucket():
+DBSession = scoped_session(sessionmaker())
+Base = declarative_base()
+
+
+class Bucket(Base):
     """ Epigrams belong to a single bucket, which is used to classify content.
 
         Buckets are categories and the primary mechanism of organization within
@@ -28,48 +45,20 @@ class Bucket():
         See the readme for the details
     """
 
-    def __init__(self, name, **kwargs):
-        """ Buckets must have a name.  All other fields are optional
+    __tablename__ = 'bucket'
+    bucket_id = Column(Integer, primary_key=True)
+    name = Column(String(50))
+    item_weight = Column(Integer)
 
-            Arguments:
-            - name (str) - buckets must contain
-
-            Keyword Args
-            - bucket_id (int) - the autoincrementing int from the DB
-            - name (str) - redudant, not used
-            - item_weight (int) - the multiple for each individual content.
-                                    used in the BucketSort
-
-            NOTE: these args map directly into the dict returned from the
-
-            TODO: I dont like the redudant name...
-        """
-
-        self._name = name
-
-        if 'item_weight' in kwargs:
-            self._item_weight = kwargs['item_weight']
-
-        if 'bucket_id' in kwargs:
-            self._id = kwargs['bucket_id']
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def id(self):
-        try:
-            return self._id
-        except AttributeError:
-            return None
-
-    @property
-    def item_weight(self):
-        return self._item_weight
+    def __str__(self):
+        return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
 
 
-class Epigram():
+def generate_uuid():
+    return str(uuid_stdlib.uuid4())
+
+
+class Epigram(Base):
     """ This is the basic unit of content in fim.
 
         An epigram is a brief, interesting, memorable, and sometimes surprising
@@ -80,44 +69,31 @@ class Epigram():
 
         BTW 'epigram' was directly lifted from the fortune man page *shrugs*.
 
-        Epigram contain the following items:
-          - epigram_uuid - unique 128 byte character string.
-          - bucket_id - Epigram belong to a single bucket
-          - content - plain text content (5k limit characters)
-
-        These field names directly map to the EPIGRAM table in the DB.
-
     """
+    __tablename__ = 'epigram'
+    # TODO: make this a uuid
+    epigram_uuid = Column(
+        Integer, default=generate_uuid(), primary_key=True)
+    bucket = relationship("Bucket", backref="epigram")
+    bucket_id = Column(Integer, ForeignKey("bucket.bucket_id"))
+    created_date = Column(String, default=datetime.datetime.now)
+    modified_date = Column(String, default=datetime.datetime.now)
+    content_source = Column(String)
+    content_text = Column(String)
+    content = Column(String)
+    # where the content originated from, (i.e. intro blog post)
+    source_url = Column(String)
+    # used with content_type (i.e. asciicast overview)
+    action_url = Column(String)
+    context_url = Column(String)  # deep dive info link (i.e. github repo)
 
-    def __init__(self, content, bucket, uuid=None):
-        """ Basic constructor for the Epigram
+    def __str__(self):
+        return f"<Epigram epigram_uuid={self.epigram_uuid}, \
+            bucket_id={self.bucket_id}, content={self.content}>"
 
-            Method Argument:
-                content (str) - the plain text content of the epigram
-                bucket (str) - the bucket key (optional)
-
-            Optional Params:
-                uuid (str) - a unique id for the item (generated if blank)
-        """
-        self._content = content
-        self._bucket = bucket
-
-        if (uuid is None):
-            self._uuid = str(uuid_stdlib.uuid4())
-        else:
-            self._uuid = uuid
-
-    @property
-    def content(self):
-        return self._content
-
-    @property
-    def bucket(self):
-        return self._bucket
-
-    @property
-    def uuid(self):
-        return self._uuid
+    @classmethod
+    def generate_uuid():
+        return str(uuid_stdlib.uuid4())
 
 
 class BaseImporter():
@@ -151,8 +127,10 @@ class SoloEpigramImporter(BaseImporter):
 class EpigramStore():
     """ This class encapsulates the internal datastore (SQLite)"""
 
-    NO_RESULTS_FOUND = Epigram("Your princess is in another castle. ", "error")
-    GENERAL_ERROR = Epigram("Always bring a towel", "error")
+    ERROR_BUCKET = Bucket(bucket_id=123, name="error")
+    NO_RESULTS_FOUND = Epigram(
+        content="Your princess is in another castle. ", bucket_id=123)
+    GENERAL_ERROR = Epigram(content="Always bring a towel", bucket_id=123)
 
     def __init__(self, filename, skip_dupes=False, _epigram_cache=[]):
         """ Construct the store (connect to db, optionally retrieve all rows)
@@ -237,13 +215,13 @@ class EpigramStore():
         t.commit()
 
     def _insert_epigram(self, epigram):
-        log.debug("Inserting epigram for " + epigram.bucket)
+        log.debug("Inserting epigram " + str(epigram))
         insert_query = """
         insert into epigram(epigram_uuid, bucket_id, content, created_date)
          values (:uuid, :bucket_id, :content, date('now'))
         """
-        self._db.query(insert_query, uuid=epigram.uuid,
-                       bucket_id=epigram.bucket,
+        self._db.query(insert_query, uuid=epigram.epigram_uuid,
+                       bucket_id=epigram.bucket_id,
                        content=epigram.content)
 
     def _select_epigram(self):
