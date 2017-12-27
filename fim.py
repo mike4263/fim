@@ -120,6 +120,34 @@ class Epigram():
         return self._uuid
 
 
+class BaseImporter():
+    """ Base class for all of the content type """
+
+    def __init__(self, uri):
+        pass
+
+    def process(self):
+        yield None
+
+
+class FortuneFileImporter(BaseImporter):
+    def __init__(self, uri):
+        pass
+
+    def process(self):
+        raise NotImplementedError()
+
+
+class SoloEpigramImporter(BaseImporter):
+    """ Add a single epigram """
+
+    def __init__(self, epigram):
+        self._epigram = epigram
+
+    def process(self):
+        yield self._epigram
+
+
 class EpigramStore():
     """ This class encapsulates the internal datastore (SQLite)"""
 
