@@ -8,7 +8,7 @@ CREATE TABLE metadata (
 
 CREATE TABLE bucket (
   bucket_id INTEGER NOT NULL,
-  bucket_name TEXT,
+  name TEXT,
   item_weight INTEGER,
   CONSTRAINT bucket_pk PRIMARY KEY (bucket_id)
 );

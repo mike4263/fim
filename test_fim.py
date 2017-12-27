@@ -6,7 +6,8 @@ import re
 import sys
 import os
 import unittest
-from fim import Epigram, EpigramStore, SoloEpigramImporter, FortuneFileImporter
+from fim import Epigram, EpigramStore, SoloEpigramImporter, \
+    FortuneFileImporter, Bucket
 import logging
 
 logger = logging.getLogger()
@@ -30,6 +31,37 @@ class EpigramTest(unittest.TestCase):
         self.assertEqual(epigram.content, content)
         self.assertEqual(epigram.bucket, bucket)
         self.assertIsNotNone(epigram.uuid)
+
+
+class BucketTest(unittest.TestCase):
+    def test_create_minimium_bucket(self):
+        bucket_name = "test_case"
+        bucket = Bucket(bucket_name)
+        self.assertEqual(bucket.name, bucket_name)
+
+    def test_create_complete_bucket(self):
+        bucket_name = "test_case"
+        bucket_id = 123
+        item_weight = 2
+
+        bucket = Bucket(bucket_name, id=bucket_id, item_weight=item_weight)
+        self.assertEqual(bucket.name, bucket_name)
+        self.assertEqual(bucket.item_weight, item_weight)
+        self.assertEqual(bucket.id, None)
+
+    def test_bucket_from_db(self):
+        bucket_name = "test_case"
+        bucket_id = 123
+        item_weight = 2
+
+        row = {'bucket_id': bucket_id, 'name': bucket_name,
+               'item_weight': item_weight}
+
+        # TODO: looking for a cleaner way to do this
+        bucket = Bucket(**row)
+        self.assertEqual(bucket.name, row['name'])
+        self.assertEqual(bucket.item_weight, row['item_weight'])
+        self.assertEqual(bucket.id, bucket_id)
 
 
 redfish_epigram = Epigram('blah', 'test_data')

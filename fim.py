@@ -17,32 +17,56 @@ log.addHandler(logging.NullHandler())
 # logging.basicConfig(level=logging.DEBUG)
 
 
-class BaseImporter():
-    """ Base class for all of the content type """
+class Bucket():
+    """ Epigrams belong to a single bucket, which is used to classify content.
 
-    def __init__(self, uri):
-        pass
+        Buckets are categories and the primary mechanism of organization within
+        FIM.  They will typically map to a single content source (e.g. fortune
+        text file), however this is not a requirement.
 
-    def process(self):
-        yield None
+        Buckets are the primary mechanism used by the "Bucket Sort" algothorim.
+        See the readme for the details
+    """
 
+    def __init__(self, name, **kwargs):
+        """ Buckets must have a name.  All other fields are optional
 
-class FortuneFileImporter(BaseImporter):
-    def __init__(self, uri):
-        pass
+            Arguments:
+            - name (str) - buckets must contain
 
-    def process(self):
-        raise NotImplementedError()
+            Keyword Args
+            - bucket_id (int) - the autoincrementing int from the DB
+            - name (str) - redudant, not used
+            - item_weight (int) - the multiple for each individual content.
+                                    used in the BucketSort
 
+            NOTE: these args map directly into the dict returned from the
 
-class SoloEpigramImporter(BaseImporter):
-    """ Add a single epigram """
+            TODO: I dont like the redudant name...
+        """
 
-    def __init__(self, epigram):
-        self._epigram = epigram
+        self._name = name
 
-    def process(self):
-        yield self._epigram
+        if 'item_weight' in kwargs:
+            self._item_weight = kwargs['item_weight']
+
+        if 'bucket_id' in kwargs:
+            self._id = kwargs['bucket_id']
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def id(self):
+        try:
+            return self._id
+        except AttributeError:
+            return None
+
+    @property
+    def item_weight(self):
+        return self._item_weight
 
 
 class Epigram():
