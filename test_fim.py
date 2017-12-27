@@ -24,13 +24,35 @@ class EpigramTest(unittest.TestCase):
 
     def test_create_basic_epigram(self):
         content = "quick brown fox"
-        bucket = "bucket"
-
-        epigram = Epigram(content, bucket)
-
+        epigram = Epigram(content)
         self.assertEqual(epigram.content, content)
-        self.assertEqual(epigram.bucket, bucket)
         self.assertIsNotNone(epigram.uuid)
+
+    def test_create_epigram_with_bucket(self):
+        content = "quick brown fox"
+        bucket_name = "test_data"
+        bucket = Bucket(bucket_name)
+        epigram = Epigram(content, bucket=bucket)
+        self.assertEqual(epigram.content, content)
+        self.assertIsNotNone(epigram.uuid)
+        self.assertTrue(isinstance(epigram.bucket, Bucket))
+        self.assertEqual(epigram.bucket.name, bucket_name)
+
+    def test_create_epigram_with_str_bucket(self):
+        content = "quick brown fox"
+        bucket_name = "test_data"
+        # don't do this
+        self.assertRaises(TypeError,
+                          lambda: Epigram(content, bucket=bucket_name))
+
+    def test_create_epigram_without_bucket(self):
+        content = "quick brown fox"
+        # don't do this
+        self.assertRaises(AttributeError, lambda: Epigram(content))
+
+    @unittest.skip("not yet impl!")
+    def test_create_epigram_with_bucketid(self):
+        pass
 
 
 class BucketTest(unittest.TestCase):
@@ -64,7 +86,7 @@ class BucketTest(unittest.TestCase):
         self.assertEqual(bucket.id, bucket_id)
 
 
-redfish_epigram = Epigram('blah', 'test_data')
+redfish_epigram = Epigram('blah', Bucket('test_data'))
 
 
 class EpigramStoreTest(unittest.TestCase):
@@ -76,6 +98,7 @@ class EpigramStoreTest(unittest.TestCase):
 
         self.db = EpigramStore(self.test_db_path)
 
+    @unittest.skip("until db works")
     def test_no_rows(self):
         result = self.db.get_epigram()
         self.assertEqual(result.content, EpigramStore.NO_RESULTS_FOUND.content)
@@ -94,6 +117,20 @@ class FortuneImporterTest(unittest.TestCase):
         for f in fortunes.process():
             self.assertEqual(f.content, fortunes[i])
             i += 1
+
+    def test_multiline_re(self):
+        s = """redfish
+%
+bluefish
+%
+onefish
+%
+twofish
+%"""
+        pattern = re.compile(r'(.*?)\n%', re.DOTALL)
+
+        for (message) in re.findall(pattern, s):
+            print("--", message.rstrip(),  "\n")
 
 
 class SoloImporterTest(unittest.TestCase):
