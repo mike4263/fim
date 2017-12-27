@@ -116,9 +116,33 @@ class EpigramStore():
             Private Class Variables:
               _epigram_cache (list of Epigram) - internal loaded cached
         """
-        raise NotImplementedError()
+        self._filename = filename
 
-    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, category=None):
+        if not os.path.exists(self._filename):
+            self._init_db()
+
+        db_uri = 'sqlite:///' + self._filename
+        log.debug("Initializing db" + db_uri)
+
+        self._db = records.Database(db_uri)
+
+    def _init_db(self, new_file=False):
+        """ Create the schema in the DB using a native sqlite3 connection
+
+        This method uses the native connection.  This could probably
+        be refactored to use the native SQLAlchemy engine...
+        """
+        log.debug("Adding schema")
+        sqlite_db = sqlite3.connect(self._filename)
+
+        with open("schema.sql", 'r', encoding='utf-8') as f:
+            schema = f.read()
+            sqlite_db.executescript(schema)
+
+        sqlite_db.commit()
+        sqlite_db.close()
+
+    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket=None):
         """ Get a epigram considering filter criteria and weight rules
 
             Keyword Arguments:
@@ -129,7 +153,7 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-        raise NotImplementedError()
+        return self._select_epigram()
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -140,7 +164,8 @@ class EpigramStore():
         Returns: the newly generated epigram
 
         """
-        raise NotImplementedError()
+        solo = SoloEpigramImporter(epigram)
+        self.add_epigram_via_importer(solo)
 
     def add_epigram_via_importer(self, importer):
         """ Method that does stuff
@@ -154,7 +179,33 @@ class EpigramStore():
             Return:
             object (str) - desc
         """
-        raise NotImplementedError()
+        t = self._db.transaction()
+        for e in importer.process():
+            self._insert_epigram(e)
+        t.commit()
+
+    def _insert_epigram(self, epigram):
+        log.debug("Inserting epigram for " + epigram.bucket)
+        insert_query = """
+        insert into epigram(epigram_uuid, bucket_id, content, created_date)
+         values (:uuid, :bucket_id, :content, date('now'))
+        """
+        self._db.query(insert_query, uuid=epigram.uuid,
+                       bucket_id=epigram.bucket,
+                       content=epigram.content)
+
+    def _select_epigram(self):
+        log.debug("Query for epigram")
+        select_query = """
+        select * from epigram limit 1
+        """
+        r = self._db.query(select_query)
+
+        if len(r) >= 1:
+            row = r[0]
+            return Epigram(row.content, row.bucket_id)
+        else:
+            return EpigramStore.NO_RESULTS_FOUND
 
 
 def main():
