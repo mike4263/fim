@@ -6,16 +6,16 @@ CREATE TABLE metadata (
   CONSTRAINT metadata_PK PRIMARY KEY (metadata_id)
 );
 
-CREATE TABLE category (
-  category_id INTEGER NOT NULL,
-  category_name TEXT,
+CREATE TABLE bucket (
+  bucket_id INTEGER NOT NULL,
+  bucket_name TEXT,
   item_weight INTEGER,
-  CONSTRAINT category_pk PRIMARY KEY (category_id)
+  CONSTRAINT bucket_pk PRIMARY KEY (bucket_id)
 );
 
 CREATE TABLE epigram (
   epigram_uuid TEXT NOT NULL,
-  category_id INTEGER NOT NULL,
+  bucket_id INTEGER NOT NULL,
   created_date INTEGER,
   modified_date INTEGER,
   content_source TEXT,
@@ -25,16 +25,16 @@ CREATE TABLE epigram (
   action_url TEXT, -- used with content_type (i.e. asciicast overview)
   context_url TEXT, -- deep dive info link (i.e. github repo)
   CONSTRAINT epigram_pk PRIMARY KEY (epigram_uuid),
-  CONSTRAINT epigram_category_FK FOREIGN KEY (category_id) REFERENCES category(category_id)
+  CONSTRAINT epigram_bucket_FK FOREIGN KEY (bucket_id) REFERENCES bucket(bucket_id)
 );
 
 CREATE TABLE impression (
   impression_id INTEGER NOT NULL,
-  category_id INTEGER NOT NULL,
+  bucket_id INTEGER NOT NULL,
   epigram_uuid TEXT NOT NULL,
   impression_date INTEGER NOT NULL,
   CONSTRAINT impression_pk PRIMARY KEY (impression_id),
-  CONSTRAINT impression_category_FK FOREIGN KEY (category_id) REFERENCES category(category_id),
+  CONSTRAINT impression_bucket_FK FOREIGN KEY (bucket_id) REFERENCES bucket(bucket_id),
   CONSTRAINT impression_epigram_FK FOREIGN KEY (epigram_uuid) REFERENCES epigram(epigram_uuid)
 );
 

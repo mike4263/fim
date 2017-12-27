@@ -23,12 +23,12 @@ class EpigramTest(unittest.TestCase):
 
     def test_create_basic_epigram(self):
         content = "quick brown fox"
-        category = "category"
+        bucket = "bucket"
 
-        epigram = Epigram(content, category)
+        epigram = Epigram(content, bucket)
 
         self.assertEqual(epigram.content, content)
-        self.assertEqual(epigram.category, category)
+        self.assertEqual(epigram.bucket, bucket)
         self.assertIsNotNone(epigram.uuid)
 
 

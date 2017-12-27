@@ -58,28 +58,28 @@ class Epigram():
 
         Epigram contain the following items:
           - epigram_uuid - unique 128 byte character string.
-          - category_id - Epigram belong to a single Category
+          - bucket_id - Epigram belong to a single bucket
           - content - plain text content (5k limit characters)
 
         These field names directly map to the EPIGRAM table in the DB.
 
     """
 
-    def __init__(self, content, category, uuid=None):
+    def __init__(self, content, bucket, uuid=None):
         """ Basic constructor for the Epigram
 
             Method Argument:
                 content (str) - the plain text content of the epigram
-                category (str) - the category key (optional)
+                bucket (str) - the bucket key (optional)
 
             Optional Params:
                 uuid (str) - a unique id for the item (generated if blank)
         """
         self._content = content
-        self._category = category
+        self._bucket = bucket
 
         if (uuid is None):
-            self._uuid = uuid_stdlib.uuid4
+            self._uuid = str(uuid_stdlib.uuid4())
         else:
             self._uuid = uuid
 
@@ -88,8 +88,8 @@ class Epigram():
         return self._content
 
     @property
-    def category(self):
-        return self._category
+    def bucket(self):
+        return self._bucket
 
     @property
     def uuid(self):
