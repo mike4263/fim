@@ -2,9 +2,17 @@
 # -*- coding: utf-8 -*-
 """ Tests for fim - fortune improved (2018) """
 
+import re
+import sys
+import os
 import unittest
-from tempfile import mkstemp
 from fim import Epigram, EpigramStore, SoloEpigramImporter, FortuneFileImporter
+import logging
+
+logger = logging.getLogger()
+logger.level = logging.DEBUG
+stream_handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(stream_handler)
 
 
 FORTUNE_FILE = "test/fishes_fortune"

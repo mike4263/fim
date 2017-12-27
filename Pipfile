@@ -12,6 +12,7 @@ click = "*"
 fuzzywuzzy = "*"
 "ruamel.yaml" = "*"
 requests = "*"
+pudb = "*"
 
 
 [dev-packages]

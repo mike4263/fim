@@ -2,8 +2,19 @@
 # -*- coding: utf-8 -*-
 
 import uuid as uuid_stdlib
+import records
+import logging
+import sqlite3
+import os
+from pudb import set_trace
+
 
 """ fim - fortune improved """
+
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
+# logging.basicConfig(level=logging.DEBUG)
 
 
 class BaseImporter():
