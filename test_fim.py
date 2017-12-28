@@ -16,7 +16,7 @@ stream_handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(stream_handler)
 
 
-FORTUNE_FILE = "test/fishes_fortune"
+FORTUNE_FILE = "test_data/fishes_fortune.txt"
 EXPECTED_FORTUNE = ["redfish", "bluefish", "onefish", "twofish"]
 
 
@@ -26,7 +26,6 @@ class EpigramTest(unittest.TestCase):
         content = "quick brown fox"
         epigram = Epigram(content=content)
         self.assertEqual(epigram.content, content)
-        # self.assertIsNotNone(epigram.epigram_uuid)
 
     def test_create_epigram_with_bucket(self):
         content = "quick brown fox"
@@ -34,26 +33,6 @@ class EpigramTest(unittest.TestCase):
         bucket = Bucket(bucket_id=400, name=bucket_name)
         epigram = Epigram(content=content, bucket_id=400)
         self.assertEqual(epigram.content, content)
-        # self.assertTrue(isinstance(epigram.bucket, Bucket))
-        # self.assertEqual(epigram.bucket.name, bucket_name)
-
-    @unittest.skip(" dont know if this makes sense anymore with ORM ")
-    def test_create_epigram_with_str_bucket(self):
-        content = "quick brown fox"
-        bucket_name = "test_data"
-        # don't do this
-        self.assertRaises(TypeError,
-                          lambda: Epigram(content=content, bucket=bucket_name))
-
-    @unittest.skip(" dont know if this makes sense anymore with ORM")
-    def test_create_epigram_without_bucket(self):
-        content = "quick brown fox"
-        # don't do this
-        self.assertRaises(AttributeError, lambda: Epigram(content))
-
-    @unittest.skip("not yet impl!")
-    def test_create_epigram_with_bucketid(self):
-        pass
 
 
 class BucketTest(unittest.TestCase):
@@ -73,23 +52,10 @@ class BucketTest(unittest.TestCase):
         self.assertEqual(bucket.item_weight, item_weight)
         self.assertEqual(bucket.bucket_id, 123)
 
-    def test_bucket_from_db(self):
-        bucket_name = "test_case"
-        bucket_id = 123
-        item_weight = 2
-
-        row = {'bucket_id': bucket_id, 'name': bucket_name,
-               'item_weight': item_weight}
-
-        # TODO: looking for a cleaner way to do this
-        bucket = Bucket(**row)
-        self.assertEqual(bucket.name, row['name'])
-        self.assertEqual(bucket.item_weight, row['item_weight'])
-        self.assertEqual(bucket.bucket_id, bucket_id)
-
 
 test_data = Bucket(bucket_id=369, name='test_data')
-redfish_epigram = Epigram(content='blah', bucket_id=test_data.bucket_id)
+redfish_epigram = Epigram(content='blah_123', bucket=test_data,
+                          bucket_id=test_data.bucket_id)
 
 
 class EpigramStoreTest(unittest.TestCase):
@@ -112,28 +78,61 @@ class EpigramStoreTest(unittest.TestCase):
         self.assertEqual(result.content, redfish_epigram.content)
 
 
-class FortuneImporterTest(unittest.TestCase):
-    @unittest.skip("until db works")
-    def test_load_file(self):
-        fortunes = FortuneFileImporter(FORTUNE_FILE)
-        i = 0
-        for f in fortunes.process():
-            self.assertEqual(f.content, fortunes[i])
-            i += 1
-
-    def test_multiline_re(self):
-        s = """redfish
+sample_fortune_file = """redfish
 %
 bluefish
 %
 onefish
-%
 twofish
+%
+something else
 %"""
-        pattern = re.compile(r'(.*?)\n%', re.DOTALL)
 
-        for (message) in re.findall(pattern, s):
-            print("--", message.rstrip(),  "\n")
+
+class FortuneFileTest(unittest.TestCase):
+
+    def test_load_file_no_bucket(self):
+        fortunes = FortuneFileImporter(FORTUNE_FILE)
+        i = 0
+        for f in fortunes.process():
+            self.assertEqual(f.content, EXPECTED_FORTUNE[i])
+            self.assertEqual(f.bucket.name, "fishes_fortune")
+            i += 1
+
+    def test_load_file_with_bucket(self):
+        bucket_name = "test_data"
+        bucket = Bucket(bucket_id=400, name=bucket_name)
+        fortunes = FortuneFileImporter(FORTUNE_FILE, bucket=bucket)
+        i = 0
+        for f in fortunes.process():
+            self.assertEqual(f.content, EXPECTED_FORTUNE[i])
+            self.assertEqual(f.bucket.name, bucket_name)
+            i += 1
+
+    def test_nonexistent_file(self):
+        self.assertRaises(AttributeError,
+              lambda: FortuneFileImporter(uri='/some/fake/path/to/a/file'))
+
+    def test_default_bucket(self):
+        fortunes = FortuneFileImporter(FORTUNE_FILE)
+        self.assertEqual(fortunes._bucket.name,  "fishes_fortune")
+
+    def test_defined_bucket(self):
+        bucket_name = "test_data"
+        bucket = Bucket(bucket_id=400, name=bucket_name)
+        fortunes = FortuneFileImporter(FORTUNE_FILE, bucket=bucket)
+        self.assertEqual(fortunes._bucket.name, bucket.name)
+
+    def test_multiline_re(self):
+        fishes = ['redfish', 'bluefish', 'onefish\ntwofish', 'something else']
+        i = 0
+        for (parsed_message) in \
+                FortuneFileImporter.process_fortune_file(sample_fortune_file):
+            print("--", parsed_message,  "\n")
+            self.assertEqual(fishes[i], parsed_message)
+            i += 1
+
+        self.assertEqual(i, 4)
 
 
 class SoloImporterTest(unittest.TestCase):

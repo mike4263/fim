@@ -2,22 +2,18 @@
 # -*- coding: utf-8 -*-
 
 import uuid as uuid_stdlib
-import records
 import logging
-import sqlite3
+import re
 import os
-from pudb import set_trace
+# from pudb import set_trace
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import scoped_session, sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import (
     Column,
     Integer,
     String,
-    Boolean,
     ForeignKey,
-    DateTime,
-    Sequence,
-    Float
+    create_engine
 )
 import datetime
 
@@ -30,7 +26,7 @@ log.addHandler(logging.NullHandler())
 # logging.basicConfig(level=logging.DEBUG)
 
 
-DBSession = scoped_session(sessionmaker())
+Session = sessionmaker()
 Base = declarative_base()
 
 
@@ -71,13 +67,13 @@ class Epigram(Base):
 
     """
     __tablename__ = 'epigram'
-    # TODO: make this a uuid
+
     epigram_uuid = Column(
-        Integer, default=generate_uuid(), primary_key=True)
+        String, default=generate_uuid(), primary_key=True)
     bucket = relationship("Bucket", backref="epigram")
     bucket_id = Column(Integer, ForeignKey("bucket.bucket_id"))
-    created_date = Column(String, default=datetime.datetime.now)
-    modified_date = Column(String, default=datetime.datetime.now)
+    created_date = Column(String, default=datetime.datetime.now())
+    modified_date = Column(String, default=datetime.datetime.now())
     content_source = Column(String)
     content_text = Column(String)
     content = Column(String)
@@ -88,8 +84,9 @@ class Epigram(Base):
     context_url = Column(String)  # deep dive info link (i.e. github repo)
 
     def __str__(self):
-        return f"<Epigram epigram_uuid={self.epigram_uuid}, \
-            bucket_id={self.bucket_id}, content={self.content}>"
+        return f"<Epigram epigram_uuid={self.epigram_uuid}, " + \
+            f"bucket_id={self.bucket_id}, content={self.content}," + \
+            f"bucket={self.bucket}>"
 
     @classmethod
     def generate_uuid():
@@ -107,11 +104,58 @@ class BaseImporter():
 
 
 class FortuneFileImporter(BaseImporter):
-    def __init__(self, uri):
-        pass
+    """ This file handles the loading of epigram from files in the legacy
+        fortune format.  This is a simple structure with content delimited by
+        % characters on single markers.  Like:
+
+        redfish
+        %
+        bluefish
+        %
+        onefish
+        twofish
+        %
+        something else
+        %
+
+    Positional Arguments:
+    - uri (str) - the file path to the fortune file
+
+    Keyword Arguments:
+    - bucket (Bucket) - the bucket that this fortune file should belone to
+                          if not specified, this is the the basename of the
+                          of the file w\\o extension
+    """
+
+    def __init__(self, uri, bucket=None):
+
+        if not os.path.exists(uri):
+            raise AttributeError(f"File {uri} does not exist")
+
+        self._filename = uri
+
+        if bucket is None:
+            base_name = os.path.basename(uri)
+            bucket_name = os.path.splitext(base_name)[0]
+            self._bucket = Bucket(name=bucket_name)
+        else:
+            self._bucket = bucket
 
     def process(self):
-        raise NotImplementedError()
+        fortune_file = open(self._filename, 'r').read()
+        for snippet in FortuneFileImporter.process_fortune_file(fortune_file):
+            yield Epigram(content=snippet, bucket=self._bucket)
+
+    @classmethod
+    def process_fortune_file(self, file_contents):
+        delimiter = re.compile(r'^%$')
+        e = ''
+        for f in file_contents.split("\n"):
+            if re.search(delimiter, f):
+                yield e.rstrip()
+                e = ""
+            else:
+                e += f + "\n"
 
 
 class SoloEpigramImporter(BaseImporter):
@@ -148,29 +192,12 @@ class EpigramStore():
         """
         self._filename = filename
 
-        if not os.path.exists(self._filename):
-            self._init_db()
-
         db_uri = 'sqlite:///' + self._filename
+        self._engine = create_engine(db_uri, echo=True)
         log.debug("Initializing db" + db_uri)
-
-        self._db = records.Database(db_uri)
-
-    def _init_db(self, new_file=False):
-        """ Create the schema in the DB using a native sqlite3 connection
-
-        This method uses the native connection.  This could probably
-        be refactored to use the native SQLAlchemy engine...
-        """
-        log.debug("Adding schema")
-        sqlite_db = sqlite3.connect(self._filename)
-
-        with open("schema.sql", 'r', encoding='utf-8') as f:
-            schema = f.read()
-            sqlite_db.executescript(schema)
-
-        sqlite_db.commit()
-        sqlite_db.close()
+        Session.configure(bind=self._engine)
+        self._session = Session()
+        Base.metadata.create_all(self._engine)
 
     def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket=None):
         """ Get a epigram considering filter criteria and weight rules
@@ -183,7 +210,9 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-        return self._select_epigram()
+        (x, ) = self._session.query(Epigram)
+        log.debug(x)
+        return x
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -209,33 +238,10 @@ class EpigramStore():
             Return:
             object (str) - desc
         """
-        t = self._db.transaction()
         for e in importer.process():
-            self._insert_epigram(e)
-        t.commit()
-
-    def _insert_epigram(self, epigram):
-        log.debug("Inserting epigram " + str(epigram))
-        insert_query = """
-        insert into epigram(epigram_uuid, bucket_id, content, created_date)
-         values (:uuid, :bucket_id, :content, date('now'))
-        """
-        self._db.query(insert_query, uuid=epigram.epigram_uuid,
-                       bucket_id=epigram.bucket_id,
-                       content=epigram.content)
-
-    def _select_epigram(self):
-        log.debug("Query for epigram")
-        select_query = """
-        select * from epigram limit 1
-        """
-        r = self._db.query(select_query)
-
-        if len(r) >= 1:
-            row = r[0]
-            return Epigram(row.content, row.bucket_id)
-        else:
-            return EpigramStore.NO_RESULTS_FOUND
+            log.debug("Inserting Epigram " + str(e))
+            self._session.add(e)
+        self._session.commit()
 
 
 def main():
