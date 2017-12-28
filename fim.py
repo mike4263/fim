@@ -5,7 +5,8 @@ import uuid as uuid_stdlib
 import logging
 import re
 import os
-# from pudb import set_trace
+import glob
+from pudb import set_trace
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import (
@@ -83,9 +84,19 @@ class Epigram(Base):
     action_url = Column(String)
     context_url = Column(String)  # deep dive info link (i.e. github repo)
 
+    def __init__(self, **kwargs):
+        self.epigram_uuid = generate_uuid()
+
+        if 'content' in kwargs:
+            self.content = kwargs['content']
+
+        if 'bucket' in kwargs:
+            self.bucket = kwargs['bucket']
+        # if 'uuid' not in kwargs:
+
     def __str__(self):
         return f"<Epigram epigram_uuid={self.epigram_uuid}, " + \
-            f"bucket_id={self.bucket_id}, content={self.content}," + \
+            f"bucket_id={self.bucket_id}, " + \
             f"bucket={self.bucket}>"
 
     @classmethod
@@ -119,7 +130,9 @@ class FortuneFileImporter(BaseImporter):
         %
 
     Positional Arguments:
-    - uri (str) - the file path to the fortune file
+    - uri (str) - the file path to the fortunes.  If this is a directory,
+                  then the entire directory will be loaded
+
 
     Keyword Arguments:
     - bucket (Bucket) - the bucket that this fortune file should belone to
@@ -132,19 +145,35 @@ class FortuneFileImporter(BaseImporter):
         if not os.path.exists(uri):
             raise AttributeError(f"File {uri} does not exist")
 
-        self._filename = uri
+        # normalize this
+        uri = os.path.realpath(uri)
 
-        if bucket is None:
-            base_name = os.path.basename(uri)
-            bucket_name = os.path.splitext(base_name)[0]
-            self._bucket = Bucket(name=bucket_name)
+        if os.path.isdir(uri):
+            self._filenames = glob.glob(uri + "/*")
+            log.debug(self._filenames)
+        elif os.path.isfile(uri):
+            self._filenames = [uri]
         else:
-            self._bucket = bucket
+            raise RuntimeError("Unexpected filetype for " + uri)
+
+        self._bucket = bucket
 
     def process(self):
-        fortune_file = open(self._filename, 'r').read()
-        for snippet in FortuneFileImporter.process_fortune_file(fortune_file):
-            yield Epigram(content=snippet, bucket=self._bucket)
+        for fname in self._filenames:
+            with open(fname, 'r') as fortune_file:
+                bucket = None
+                if self._bucket is None:
+                    bucket = self._determine_bucket(fname)
+                else:
+                    bucket = self._bucket
+
+                for snippet in self.process_fortune_file(fortune_file.read()):
+                    yield Epigram(content=snippet, bucket=bucket)
+
+    def _determine_bucket(self, file_name):
+        base_name = os.path.basename(file_name)
+        bucket_name = os.path.splitext(base_name)[0]
+        return Bucket(name=bucket_name)
 
     @classmethod
     def process_fortune_file(self, file_contents):
@@ -193,7 +222,7 @@ class EpigramStore():
         self._filename = filename
 
         db_uri = 'sqlite:///' + self._filename
-        self._engine = create_engine(db_uri, echo=True)
+        self._engine = create_engine(db_uri, echo=False)
         log.debug("Initializing db" + db_uri)
         Session.configure(bind=self._engine)
         self._session = Session()
@@ -239,7 +268,7 @@ class EpigramStore():
             object (str) - desc
         """
         for e in importer.process():
-            log.debug("Inserting Epigram " + str(e))
+            # log.debug("Inserting Epigram " + str(e))
             self._session.add(e)
         self._session.commit()
 

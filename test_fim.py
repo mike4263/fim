@@ -16,7 +16,8 @@ stream_handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(stream_handler)
 
 
-FORTUNE_FILE = "test_data/fishes_fortune.txt"
+FORTUNE_FILE_DIR = "test_data"
+FORTUNE_FILE = f"{FORTUNE_FILE_DIR}/fishes_fortune.txt"
 EXPECTED_FORTUNE = ["redfish", "bluefish", "onefish", "twofish"]
 
 
@@ -77,6 +78,9 @@ class EpigramStoreTest(unittest.TestCase):
         result = self.db.get_epigram()
         self.assertEqual(result.content, redfish_epigram.content)
 
+    def test_add_and_get_epigram(self):
+        self.db.add_epigram_via_importer(FortuneFileImporter('content/legacy_fortune/'))
+
 
 sample_fortune_file = """redfish
 %
@@ -96,6 +100,7 @@ class FortuneFileTest(unittest.TestCase):
         i = 0
         for f in fortunes.process():
             self.assertEqual(f.content, EXPECTED_FORTUNE[i])
+            logger.debug(f" e is {f}" )
             self.assertEqual(f.bucket.name, "fishes_fortune")
             i += 1
 
@@ -109,13 +114,25 @@ class FortuneFileTest(unittest.TestCase):
             self.assertEqual(f.bucket.name, bucket_name)
             i += 1
 
+    def test_load_directory(self):
+        fortunes = FortuneFileImporter(FORTUNE_FILE_DIR)
+
+        i = 0
+        for f in fortunes.process():
+            i += 1
+
+        # I actually have no idea how many fortunes there are buts its more
+        # then 10
+        self.assertTrue(i > 10)
+
     def test_nonexistent_file(self):
         self.assertRaises(AttributeError,
               lambda: FortuneFileImporter(uri='/some/fake/path/to/a/file'))
 
     def test_default_bucket(self):
+        """ The bucket will be defined for each file, so this is None"""
         fortunes = FortuneFileImporter(FORTUNE_FILE)
-        self.assertEqual(fortunes._bucket.name,  "fishes_fortune")
+        self.assertEqual(fortunes._bucket,  None)
 
     def test_defined_bucket(self):
         bucket_name = "test_data"
