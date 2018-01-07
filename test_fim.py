@@ -5,10 +5,13 @@
 import re
 import sys
 import os
+import random
+import string
 import unittest
 from fim import Epigram, EpigramStore, SoloEpigramImporter, \
-    FortuneFileImporter, Bucket
+    FortuneFileImporter, Bucket, Impression
 import logging
+#from pudb import set_trace
 
 logger = logging.getLogger()
 logger.level = logging.DEBUG
@@ -54,11 +57,6 @@ class BucketTest(unittest.TestCase):
         self.assertEqual(bucket.bucket_id, 123)
 
 
-test_data = Bucket(bucket_id=369, name='test_data')
-redfish_epigram = Epigram(content='blah_123', bucket=test_data,
-                          bucket_id=test_data.bucket_id)
-
-
 class EpigramStoreTest(unittest.TestCase):
     test_db_path = "/tmp/fim_test.db"
 
@@ -74,12 +72,53 @@ class EpigramStoreTest(unittest.TestCase):
         self.assertEqual(result.content, EpigramStore.NO_RESULTS_FOUND.content)
 
     def test_add_and_get_epigram(self):
-        self.db.add_epigram(redfish_epigram)
+        epi = get_random_epigram()
+        self.db.add_epigram(epi)
         result = self.db.get_epigram()
-        self.assertEqual(result.content, redfish_epigram.content)
+        self.assertEqual(result.content, epi.content)
 
-    def test_add_and_get_epigram(self):
-        self.db.add_epigram_via_importer(FortuneFileImporter('content/legacy_fortune/'))
+    @unittest.skip("move to integration suite")
+    def test_add_entire_directory(self):
+        self.db.add_epigrams_via_importer(
+            FortuneFileImporter('content/legacy_fortune/'))
+
+    def test_impression_count_test(self):
+        self.db.add_epigrams_via_importer(
+            FortuneFileImporter('test_data/'))
+
+        for x in range(32):
+            self.db.get_epigram()
+
+        self.assertEqual(self.db.get_impression_count(), 32)
+
+    def test_get_buckets(self):
+        self.db.add_epigrams_via_importer(FortuneFileImporter('test_data/'))
+
+        (fishes, meta) = self.db.get_buckets()
+
+        self.assertEqual(fishes.name, "fishes_fortune")
+        self.assertEqual(meta.name, "meta_fortune")
+
+    def test_get_bucket(self):
+        self.db.add_epigrams_via_importer(FortuneFileImporter('test_data/'))
+
+        fishes = self.db.get_bucket("fishes_fortune")
+        self.assertEqual(fishes.name, "fishes_fortune")
+
+    def test_impression_count_categories(self):
+        self.db.add_epigrams_via_importer(FortuneFileImporter('test_data/'))
+
+        for x in range(100):
+            self.db.get_epigram(bucket_name="meta_fortune")
+
+        for x in range(4):
+            self.db.get_epigram(bucket_name="fishes_fortune")
+
+        self.assertEqual(self.db.get_impression_count(), 104)
+        self.assertEqual(self.db.get_impression_count(
+            bucket_name="meta_fortune"), 100)
+        self.assertEqual(self.db.get_impression_count(
+            bucket_name="fishes_fortune"), 4)
 
 
 sample_fortune_file = """redfish
@@ -100,7 +139,7 @@ class FortuneFileTest(unittest.TestCase):
         i = 0
         for f in fortunes.process():
             self.assertEqual(f.content, EXPECTED_FORTUNE[i])
-            logger.debug(f" e is {f}" )
+            logger.debug(f" e is {f}")
             self.assertEqual(f.bucket.name, "fishes_fortune")
             i += 1
 
@@ -127,7 +166,8 @@ class FortuneFileTest(unittest.TestCase):
 
     def test_nonexistent_file(self):
         self.assertRaises(AttributeError,
-              lambda: FortuneFileImporter(uri='/some/fake/path/to/a/file'))
+                          lambda: FortuneFileImporter(
+                              uri='/some/fake/path/to/a/file'))
 
     def test_default_bucket(self):
         """ The bucket will be defined for each file, so this is None"""
@@ -154,8 +194,41 @@ class FortuneFileTest(unittest.TestCase):
 
 class SoloImporterTest(unittest.TestCase):
     def test_single_epigram(self):
-        (x, ) = SoloEpigramImporter(redfish_epigram).process()
-        self.assertEqual(redfish_epigram.content, x.content)
+        epi = get_random_epigram()
+        (x, ) = SoloEpigramImporter(epi).process()
+        self.assertEqual(epi.content, x.content)
+
+
+class ImpressionTest(unittest.TestCase):
+    def test_impresssion_creation(self):
+        epi = get_random_epigram()
+        impression = Impression(epigram=epi)
+        logger.debug(impression)
+        self.assertEqual(impression.bucket.bucket_id,
+                         epi.bucket.bucket_id)
+        self.assertEqual(impression.epigram.epigram_uuid,
+                         epi.epigram_uuid)
+
+
+def get_random_epigram(bucket=None):
+
+    if bucket is None:
+        bucket = get_random_bucket()
+
+    return Epigram(content=_random_string(), bucket=bucket,
+                   bucket_id=bucket.bucket_id)
+
+
+def get_random_bucket():
+    return Bucket(name=_random_string())
+
+
+def _random_string():
+    return ''.join(random.choice(string.ascii_uppercase + string.digits) for x in range(32))
+
+
+def _random_id():
+    return ''.join(random.choice(string.digits) for x in range(5))
 
 
 if __name__ == '__main__':

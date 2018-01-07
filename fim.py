@@ -24,7 +24,7 @@ import datetime
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
-# logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
 
 
 Session = sessionmaker()
@@ -102,6 +102,33 @@ class Epigram(Base):
     @classmethod
     def generate_uuid():
         return str(uuid_stdlib.uuid4())
+
+
+class Impression(Base):
+    """ Track the views for each epigram """
+    __tablename__ = 'impression'
+    impression_id = Column(Integer, primary_key=True)
+    bucket_id = Column(Integer, ForeignKey("bucket.bucket_id"))
+    bucket = relationship("Bucket", backref="impression")
+    epigram_uuid = Column(String, ForeignKey("epigram.epigram_uuid"))
+    epigram = relationship("Epigram", backref="impression")
+    impression_date = Column(String, default=datetime.datetime.now())
+
+    def __init__(self, **kwargs):
+
+        if 'epigram' in kwargs:
+            self.epigram = kwargs['epigram']
+            self.epigram_uuid = self.epigram.epigram_uuid
+
+            if self.epigram.bucket is not None:
+                self.bucket = self.epigram.bucket
+                self.bucket_id = self.bucket.bucket_id
+
+    def __str__(self):
+        return f"<Impression impression_id={self.impression_id}, " + \
+            f"epigram_uuid={self.epigram_uuid}, " + \
+            f"bucket_id={self.bucket_id}, " + \
+            f"bucket={self.bucket}>"
 
 
 class BaseImporter():
@@ -228,19 +255,29 @@ class EpigramStore():
         self._session = Session()
         Base.metadata.create_all(self._engine)
 
-    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket=None):
+    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket_name=None, bucket=None):
         """ Get a epigram considering filter criteria and weight rules
 
             Keyword Arguments:
             uuid (str) - return this specific epigram
             internal_fetch_ratio (int) - see the README for info on the
                                                   weighting algorithm
+            bucket_name (str) - the natural key for the buckets
+            bucket - a bucket object
 
             Return:
             An Epigram (obviously)
         """
-        (x, ) = self._session.query(Epigram)
-        log.debug(x)
+
+        q = self._session.query(Epigram).join(Bucket)
+
+        if (bucket_name is not None):
+            q.filter(Bucket.name == bucket_name)
+            pass
+
+        x = q.first()
+        log.debug(f"Retrieved Epigram {x}")
+        self.add_impression(x)
         return x
 
     def add_epigram(self, epigram):
@@ -253,9 +290,9 @@ class EpigramStore():
 
         """
         solo = SoloEpigramImporter(epigram)
-        self.add_epigram_via_importer(solo)
+        self.add_epigrams_via_importer(solo)
 
-    def add_epigram_via_importer(self, importer):
+    def add_epigrams_via_importer(self, importer):
         """ Method that does stuff
 
             Positional Arguments:
@@ -271,6 +308,49 @@ class EpigramStore():
             # log.debug("Inserting Epigram " + str(e))
             self._session.add(e)
         self._session.commit()
+
+    def add_impression(self, epigram):
+        """ Add the impression for the epigram
+
+            Positional Arguments:
+            epigram (Epigram) - the epigram viewed
+        """
+        imp = Impression(epigram=epigram)
+        log.debug(f"Impression tracked - {imp}")
+        self._session.add(imp)
+        self._session.commit()
+
+    def get_impression_count(self, bucket_name=None, unique=False):
+        """
+        This function will retrieve a count of the impressions.  By default,
+        it will return the number of all impressions.  You can filter via
+        these keyword arguments:
+
+        * epigram_uuid (not implemented)
+        * bucket_name (str) - constrain to a single bucket
+        * unique (bool) - only count unique impressions
+        """
+
+        q = self._session.query(Impression).join(Bucket)
+
+        if (bucket_name is not None):
+            q.filter(Bucket.name == bucket_name)
+
+        return q.count()
+
+    def get_bucket(self, bucket_name):
+        """
+        Retrieve the Bucket specified by the name
+
+        :return: a Bucket object
+        """
+        return self._session.query(Bucket).filter(Bucket.name == bucket_name).first()
+
+    def get_buckets(self):
+        """
+        Retrieve all the Buckets in the system
+        """
+        return self._session.query(Bucket).all()
 
 
 def main():
