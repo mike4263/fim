@@ -101,7 +101,7 @@ class Epigram(Base):
 
     @classmethod
     def generate_uuid():
-        return str(uuid_stdlib.uuid4())
+        return str(uuid_stdlib.uuid1())
 
 
 class Impression(Base):
@@ -271,14 +271,17 @@ class EpigramStore():
 
         q = self._session.query(Epigram).join(Bucket)
 
-        if (bucket_name is not None):
-            q.filter(Bucket.name == bucket_name)
+        if bucket_name is not None:
+            q = q.filter(Bucket.name == bucket_name)
             pass
 
         x = q.first()
         log.debug(f"Retrieved Epigram {x}")
-        self.add_impression(x)
-        return x
+        if x is None:
+            return self.NO_RESULTS_FOUND
+        else:
+            self.add_impression(x)
+            return x
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -305,7 +308,7 @@ class EpigramStore():
             object (str) - desc
         """
         for e in importer.process():
-            # log.debug("Inserting Epigram " + str(e))
+            log.debug("Inserting Epigram " + str(e))
             self._session.add(e)
         self._session.commit()
 
@@ -333,8 +336,8 @@ class EpigramStore():
 
         q = self._session.query(Impression).join(Bucket)
 
-        if (bucket_name is not None):
-            q.filter(Bucket.name == bucket_name)
+        if bucket_name is not None:
+            q = q.filter(Bucket.name == bucket_name)
 
         return q.count()
 

@@ -28,6 +28,8 @@ CREATE TABLE epigram (
   CONSTRAINT epigram_bucket_FK FOREIGN KEY (bucket_id) REFERENCES bucket(bucket_id)
 );
 
+create index idx1_epigram on epigram(bucket_id);
+
 CREATE TABLE impression (
   impression_id INTEGER NOT NULL,
   bucket_id INTEGER NOT NULL,

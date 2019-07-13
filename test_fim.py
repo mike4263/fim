@@ -8,6 +8,7 @@ import os
 import random
 import string
 import unittest
+import time
 from fim import Epigram, EpigramStore, SoloEpigramImporter, \
     FortuneFileImporter, Bucket, Impression
 import logging
@@ -66,7 +67,6 @@ class EpigramStoreTest(unittest.TestCase):
 
         self.db = EpigramStore(self.test_db_path)
 
-    @unittest.skip("until db works")
     def test_no_rows(self):
         result = self.db.get_epigram()
         self.assertEqual(result.content, EpigramStore.NO_RESULTS_FOUND.content)
@@ -77,10 +77,34 @@ class EpigramStoreTest(unittest.TestCase):
         result = self.db.get_epigram()
         self.assertEqual(result.content, epi.content)
 
-    @unittest.skip("move to integration suite")
-    def test_add_entire_directory(self):
+    def test_add_entire_directory_with_timing(self):
+        start = time.time()
         self.db.add_epigrams_via_importer(
             FortuneFileImporter('content/legacy_fortune/'))
+        end = time.time()
+        logger.info(f"Loading 30k ish epigrams took %s" % (end - start))
+
+        i = 10
+        start = time.time()
+        for x in range(i):
+            self.db.get_epigram()
+        end = time.time()
+        logger.info(f"Retrieving %d epigram took %s " % (i,  end - start))
+
+        i = 1000
+        start = time.time()
+        for x in range(i):
+            self.db.get_epigram()
+        end = time.time()
+        logger.info(f"Retrieving %d epigram took %s " % (i,  end - start))
+
+        i = 10000
+        start = time.time()
+        for x in range(i):
+            self.db.get_epigram()
+        end = time.time()
+        logger.info(f"Retrieving %d epigram took %s " % (i,  end - start))
+
 
     def test_impression_count_test(self):
         self.db.add_epigrams_via_importer(
@@ -105,20 +129,32 @@ class EpigramStoreTest(unittest.TestCase):
         fishes = self.db.get_bucket("fishes_fortune")
         self.assertEqual(fishes.name, "fishes_fortune")
 
-    def test_impression_count_categories(self):
+    def test_impression_count_meta(self):
         self.db.add_epigrams_via_importer(FortuneFileImporter('test_data/'))
 
-        for x in range(100):
+        for x in range(1):
+            e : Epigram = self.db.get_epigram(bucket_name="meta_fortune")
+            self.assertEqual(e.bucket_id, 2)
+
+        self.assertEqual(self.db.get_impression_count(), 1)
+        self.assertEqual(self.db.get_impression_count(
+            bucket_name="meta_fortune"), 1)
+
+    def test_impression_count_categories(self):
+        logging.basicConfig(level=logging.INFO)
+        self.db.add_epigrams_via_importer(FortuneFileImporter('test_data/'))
+
+        for x in range(2000):
             self.db.get_epigram(bucket_name="meta_fortune")
 
-        for x in range(4):
+        for x in range(1000):
             self.db.get_epigram(bucket_name="fishes_fortune")
 
-        self.assertEqual(self.db.get_impression_count(), 104)
+        self.assertEqual(self.db.get_impression_count(), 3000)
         self.assertEqual(self.db.get_impression_count(
-            bucket_name="meta_fortune"), 100)
+            bucket_name="meta_fortune"), 2000)
         self.assertEqual(self.db.get_impression_count(
-            bucket_name="fishes_fortune"), 4)
+            bucket_name="fishes_fortune"), 1000)
 
 
 sample_fortune_file = """redfish
@@ -139,7 +175,7 @@ class FortuneFileTest(unittest.TestCase):
         i = 0
         for f in fortunes.process():
             self.assertEqual(f.content, EXPECTED_FORTUNE[i])
-            logger.debug(f" e is {f}")
+            #logger.debug(f" e is {f}")
             self.assertEqual(f.bucket.name, "fishes_fortune")
             i += 1
 
