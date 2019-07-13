@@ -7,7 +7,7 @@ import re
 import os
 import glob
 import random
-from pudb import set_trace
+from pathlib import Path
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import (
@@ -26,7 +26,7 @@ import datetime
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 #logging.basicConfig(level=logging.ERROR)
-log.setLevel(logging.ERROR)
+log.setLevel(logging.INFO)
 
 
 Session = sessionmaker()
@@ -56,9 +56,11 @@ class Bucket(Base):
     name = Column(String(50))
     item_weight = Column(Integer, default=1)
 
-    def __init__(self, name, **kwargs):
-        self.name = name
-        self.bucket_id = mydefault()
+#    def __init__(self, name, **kwargs):
+#        super()
+#        self.name = name
+#        self.bucket_id = mydefault()
+
 
     def __str__(self):
         return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
@@ -114,7 +116,7 @@ class Epigram(Base):
             f"bucket={self.bucket}>"
 
     @classmethod
-    def generate_uuid():
+    def generate_uuid(cls):
         return str(uuid_stdlib.uuid1())
 
 
@@ -244,10 +246,11 @@ class EpigramStore():
 
     ERROR_BUCKET = Bucket(bucket_id=123, name="error")
     NO_RESULTS_FOUND = Epigram(
-        content="Your princess is in another castle. ", bucket_id=123)
-    GENERAL_ERROR = Epigram(content="Always bring a towel", bucket_id=123)
+        content="Your princess is in another castle. (404: File Not Found) ", bucket_id=123)
+    GENERAL_ERROR = Epigram(content="Always bring a towel (500: General Error)", bucket_id=123)
+    SQL_DIR="sql"
 
-    def __init__(self, filename, skip_dupes=False, _epigram_cache=[]):
+    def __init__(self, filename, force_random=False, skip_dupes=False, _epigram_cache=[]):
         """ Construct the store (connect to db, optionally retrieve all rows)
 
             Positional Arguments:
@@ -262,6 +265,7 @@ class EpigramStore():
               _epigram_cache (list of Epigram) - internal loaded cached
         """
         self._filename = filename
+        self._force_random = force_random
 
         db_uri = 'sqlite:///' + self._filename
         self._engine = create_engine(db_uri, echo=False)
@@ -269,13 +273,71 @@ class EpigramStore():
         Session.configure(bind=self._engine)
         self._session = Session()
         Base.metadata.create_all(self._engine)
+        self._load_sql_files()
+
+
+
+    def _load_sql_files(self, file_dir=SQL_DIR):
+        uri = os.path.realpath(file_dir)
+
+        if os.path.isdir(uri):
+            sql_files = glob.glob(uri + "/*")
+        elif os.path.isfile(uri):
+            sql_files = [uri]
+        else:
+            raise RuntimeError("FileNotFound: "  + uri)
+
+        log.debug(sql_files)
+
+        for fname in sql_files:
+            with open(fname, 'r') as sql_text:
+                self._execute_sql(sql_text.read())
+
+    def _execute_sql(self, sql_text):
+        # TODO: add support for multiple statements
+        # TODO: add support for stripping comments
+        self._engine.execute(sql_text)
+
+
+
+    def _get_weighted_bucket(self):
+        """
+        Using the patented BucketSort(TM) Technology this queries the impressions_calculated
+        table.  This factors in the relative weights of each bucket compared to its actual
+        impressions.  Buckets that have exceeded their allowable view percentage are excluded
+        from selection.
+
+        The selection itself is using the random.choice() method based on the probabilities
+
+        :return: the bucket_id to use in the get epigram query
+        """
+
+        rs = self._engine.execute("""
+            select bucket_id, effective_impression_percentage from impressions_calculated 
+             where impression_delta >= 0
+            """)
+
+        buckets = []
+        probabilties = []
+
+        for row in rs:
+            buckets.append(row[0])
+            probabilties.append(row[1])
+
+        try:
+            bucket = random.choices(buckets, weights=probabilties)[0]
+            return bucket
+        except:
+            return None
+
+
 
     def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket_name=None, bucket=None):
         """ Get a epigram considering filter criteria and weight rules
 
             Keyword Arguments:
             uuid (str) - return this specific epigram
-            internal_fetch_ratio (int) - see the README for info on the
+            internal_fetch_ratio (int) - see the README.adoc for info on the
                                                   weighting algorithm
             bucket_name (str) - the natural key for the buckets
             bucket - a bucket object
@@ -287,12 +349,17 @@ class EpigramStore():
 
         if bucket_name is not None:
             q = q.filter(Bucket.name == bucket_name)
-            pass
+        else:
+            bucket = self._get_weighted_bucket()
+            if bucket is not None:
+                q = q.filter_by(bucket_id = bucket)
 
-        rowCount = q.count()
+        if self._force_random == True:
+            rowCount = q.count()
+            q = q.offset(int(rowCount * random.random()))
 
-        #x = q.first()
-        x = q.offset(int(rowCount * random.random() )).first()
+        x = q.first()
+
         log.debug(f"Retrieved Epigram {x}")
         if x is None:
             return self.NO_RESULTS_FOUND
@@ -379,10 +446,14 @@ class EpigramStore():
 def main():
     # this path is hardcoded for containers
     CONTAINER_PATH = "/var/fim/fortune.db"
+    HOME_DIR = str(Path.home())+"/.fim/fortune.db"
     if os.path.exists(CONTAINER_PATH):
         db = EpigramStore(CONTAINER_PATH)
+    elif os.path.exists(HOME_DIR):
+        db = os.path.exists(HOME_DIR)
     else:
-        db = EpigramStore("fortune.db")
+        # This means we are running inside of the container
+        db = EpigramStore("/app/fortune.db", force_random=True)
 
     print(db.get_epigram().content)
 
