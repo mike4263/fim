@@ -6,6 +6,7 @@ import logging
 import re
 import os
 import glob
+import random
 from pudb import set_trace
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -24,7 +25,8 @@ import datetime
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.ERROR)
+log.setLevel(logging.ERROR)
 
 
 Session = sessionmaker()
@@ -74,7 +76,8 @@ class Epigram(Base):
     bucket = relationship("Bucket", backref="epigram")
     bucket_id = Column(Integer, ForeignKey("bucket.bucket_id"))
     created_date = Column(String, default=datetime.datetime.now())
-    modified_date = Column(String, default=datetime.datetime.now())
+    modified_date = Column(String)
+    last_impression_date = Column(String)
     content_source = Column(String)
     content_text = Column(String)
     content = Column(String)
@@ -112,13 +115,14 @@ class Impression(Base):
     bucket = relationship("Bucket", backref="impression")
     epigram_uuid = Column(String, ForeignKey("epigram.epigram_uuid"))
     epigram = relationship("Epigram", backref="impression")
-    impression_date = Column(String, default=datetime.datetime.now())
+    impression_date = Column(String)
 
     def __init__(self, **kwargs):
 
         if 'epigram' in kwargs:
             self.epigram = kwargs['epigram']
             self.epigram_uuid = self.epigram.epigram_uuid
+            self.impression_date = datetime.datetime.now()
 
             if self.epigram.bucket is not None:
                 self.bucket = self.epigram.bucket
@@ -268,14 +272,16 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-
-        q = self._session.query(Epigram).join(Bucket)
+        q = self._session.query(Epigram).join(Bucket).order_by(Epigram.last_impression_date.asc())
 
         if bucket_name is not None:
             q = q.filter(Bucket.name == bucket_name)
             pass
 
+        rowCount = q.count()
+
         x = q.first()
+            #.offset(int(rowCount * random.random() )).first()
         log.debug(f"Retrieved Epigram {x}")
         if x is None:
             return self.NO_RESULTS_FOUND
@@ -320,6 +326,7 @@ class EpigramStore():
         """
         imp = Impression(epigram=epigram)
         log.debug(f"Impression tracked - {imp}")
+        epigram.last_impression_date = datetime.datetime.now()
         self._session.add(imp)
         self._session.commit()
 
@@ -356,8 +363,11 @@ class EpigramStore():
         return self._session.query(Bucket).all()
 
 
+
+
 def main():
-    pass
+    db = EpigramStore("/home/mike/.fim/fortune.db")
+    print(db.get_epigram().content)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ CREATE TABLE epigram (
   bucket_id INTEGER NOT NULL,
   created_date INTEGER,
   modified_date INTEGER,
+  last_impression_date INTEGER,
   content_source TEXT,
   content_type TEXT, -- values: plain, asciicast, source
   content TEXT NOT NULL,
