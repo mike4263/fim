@@ -32,6 +32,13 @@ log.setLevel(logging.ERROR)
 Session = sessionmaker()
 Base = declarative_base()
 
+# this is my homebrew id generator for bucket id generatio
+i = 0
+def mydefault():
+    global i
+    i += 1
+    return i
+
 
 class Bucket(Base):
     """ Epigrams belong to a single bucket, which is used to classify content.
@@ -47,11 +54,14 @@ class Bucket(Base):
     __tablename__ = 'bucket'
     bucket_id = Column(Integer, primary_key=True)
     name = Column(String(50))
-    item_weight = Column(Integer)
+    item_weight = Column(Integer, default=1)
+
+    def __init__(self, name, **kwargs):
+        self.name = name
+        self.bucket_id = mydefault()
 
     def __str__(self):
         return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
-
 
 def generate_uuid():
     return str(uuid_stdlib.uuid4())
@@ -95,6 +105,7 @@ class Epigram(Base):
 
         if 'bucket' in kwargs:
             self.bucket = kwargs['bucket']
+            self.bucket_id = self.bucket.bucket_id
         # if 'uuid' not in kwargs:
 
     def __str__(self):
@@ -280,8 +291,8 @@ class EpigramStore():
 
         rowCount = q.count()
 
-        x = q.first()
-            #.offset(int(rowCount * random.random() )).first()
+        #x = q.first()
+        x = q.offset(int(rowCount * random.random() )).first()
         log.debug(f"Retrieved Epigram {x}")
         if x is None:
             return self.NO_RESULTS_FOUND
@@ -366,7 +377,13 @@ class EpigramStore():
 
 
 def main():
-    db = EpigramStore("/home/mike/.fim/fortune.db")
+    # this path is hardcoded for containers
+    CONTAINER_PATH = "/var/fim/fortune.db"
+    if os.path.exists(CONTAINER_PATH):
+        db = EpigramStore(CONTAINER_PATH)
+    else:
+        db = EpigramStore("fortune.db")
+
     print(db.get_epigram().content)
 
 
