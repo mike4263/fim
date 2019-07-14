@@ -2,8 +2,9 @@
 install:
 	pipenv install
 
-test: install
+test: 
 	pipenv run python test_fim.py
 
-docker:
+
+docker: test
 	docker build . -t fim:latest

@@ -7,6 +7,7 @@ import re
 import os
 import glob
 import random
+import sys
 from pathlib import Path
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -24,10 +25,9 @@ import datetime
 
 
 log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
+log.addHandler(logging.StreamHandler(sys.stdout))
 #logging.basicConfig(level=logging.ERROR)
 log.setLevel(logging.INFO)
-
 
 Session = sessionmaker()
 Base = declarative_base()
@@ -287,17 +287,15 @@ class EpigramStore():
         else:
             raise RuntimeError("FileNotFound: "  + uri)
 
-        log.debug(sql_files)
+        sql_files.sort()
 
         for fname in sql_files:
             with open(fname, 'r') as sql_text:
+                log.debug(f"Processing %s file" % (fname))
                 self._execute_sql(sql_text.read())
 
     def _execute_sql(self, sql_text):
-        # TODO: add support for multiple statements
-        # TODO: add support for stripping comments
         self._engine.execute(sql_text)
-
 
 
     def _get_weighted_bucket(self):
@@ -444,13 +442,14 @@ class EpigramStore():
 
 
 def main():
-    # this path is hardcoded for containers
     CONTAINER_PATH = "/var/fim/fortune.db"
     HOME_DIR = str(Path.home())+"/.fim/fortune.db"
+
     if os.path.exists(CONTAINER_PATH):
+        # this is a container with a mounted fim dir
         db = EpigramStore(CONTAINER_PATH)
     elif os.path.exists(HOME_DIR):
-        db = os.path.exists(HOME_DIR)
+        db = EpigramStore(HOME_DIR)
     else:
         # This means we are running inside of the container
         db = EpigramStore("/app/fortune.db", force_random=True)

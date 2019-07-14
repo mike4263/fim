@@ -1,0 +1,32 @@
+fim - fortune improved
+======================
+
+image:logo.png[]
+
+Its 2019.  Time for a modern fortune replacement.
+
+This isn't your daddy's `bsdgames` utility.  `fim` is designed for the discrening terminal for power lesuire within their SSH session.
+
+It proudly supports the following features*:
+
+- BucketSort(TM) - by tracking impressions via a local SQLite DB, FIM guarantees your content will be displayed evenly without duplicates!
+- Easily fork/share/collaborate epigrams via GitHub
+- Cloud enabled with content from Twitter, Reddit, HackerNews, etc
+- Interactive content! Asciienma! Automated GitHub clones!  And more!
+
+_* in theory, none of this is implemented yet!_
+
+
+== Getting Started
+
+Alright, lets do it:
+
+```
+docker run mike4263/fim:latest
+```
+
+This mode is completely random.  To maximize your enjoyment, you will need
+1) a local DB and 2) a `fimrc` file.  Use `setup_fim.sh` to set this up.
+
+
+
