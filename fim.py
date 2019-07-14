@@ -6,7 +6,9 @@ import logging
 import re
 import os
 import glob
-from pudb import set_trace
+import random
+import sys
+from pathlib import Path
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import (
@@ -23,12 +25,19 @@ import datetime
 
 
 log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
-logging.basicConfig(level=logging.DEBUG)
-
+log.addHandler(logging.StreamHandler(sys.stdout))
+#logging.basicConfig(level=logging.ERROR)
+log.setLevel(logging.INFO)
 
 Session = sessionmaker()
 Base = declarative_base()
+
+# this is my homebrew id generator for bucket id generatio
+i = 0
+def mydefault():
+    global i
+    i += 1
+    return i
 
 
 class Bucket(Base):
@@ -45,11 +54,16 @@ class Bucket(Base):
     __tablename__ = 'bucket'
     bucket_id = Column(Integer, primary_key=True)
     name = Column(String(50))
-    item_weight = Column(Integer)
+    item_weight = Column(Integer, default=1)
+
+#    def __init__(self, name, **kwargs):
+#        super()
+#        self.name = name
+#        self.bucket_id = mydefault()
+
 
     def __str__(self):
         return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
-
 
 def generate_uuid():
     return str(uuid_stdlib.uuid4())
@@ -74,7 +88,8 @@ class Epigram(Base):
     bucket = relationship("Bucket", backref="epigram")
     bucket_id = Column(Integer, ForeignKey("bucket.bucket_id"))
     created_date = Column(String, default=datetime.datetime.now())
-    modified_date = Column(String, default=datetime.datetime.now())
+    modified_date = Column(String)
+    last_impression_date = Column(String)
     content_source = Column(String)
     content_text = Column(String)
     content = Column(String)
@@ -92,6 +107,7 @@ class Epigram(Base):
 
         if 'bucket' in kwargs:
             self.bucket = kwargs['bucket']
+            self.bucket_id = self.bucket.bucket_id
         # if 'uuid' not in kwargs:
 
     def __str__(self):
@@ -100,8 +116,8 @@ class Epigram(Base):
             f"bucket={self.bucket}>"
 
     @classmethod
-    def generate_uuid():
-        return str(uuid_stdlib.uuid4())
+    def generate_uuid(cls):
+        return str(uuid_stdlib.uuid1())
 
 
 class Impression(Base):
@@ -112,13 +128,14 @@ class Impression(Base):
     bucket = relationship("Bucket", backref="impression")
     epigram_uuid = Column(String, ForeignKey("epigram.epigram_uuid"))
     epigram = relationship("Epigram", backref="impression")
-    impression_date = Column(String, default=datetime.datetime.now())
+    impression_date = Column(String)
 
     def __init__(self, **kwargs):
 
         if 'epigram' in kwargs:
             self.epigram = kwargs['epigram']
             self.epigram_uuid = self.epigram.epigram_uuid
+            self.impression_date = datetime.datetime.now()
 
             if self.epigram.bucket is not None:
                 self.bucket = self.epigram.bucket
@@ -229,10 +246,11 @@ class EpigramStore():
 
     ERROR_BUCKET = Bucket(bucket_id=123, name="error")
     NO_RESULTS_FOUND = Epigram(
-        content="Your princess is in another castle. ", bucket_id=123)
-    GENERAL_ERROR = Epigram(content="Always bring a towel", bucket_id=123)
+        content="Your princess is in another castle. (404: File Not Found) ", bucket_id=123)
+    GENERAL_ERROR = Epigram(content="Always bring a towel (500: General Error)", bucket_id=123)
+    SQL_DIR="sql"
 
-    def __init__(self, filename, skip_dupes=False, _epigram_cache=[]):
+    def __init__(self, filename, force_random=False, skip_dupes=False, _epigram_cache=[]):
         """ Construct the store (connect to db, optionally retrieve all rows)
 
             Positional Arguments:
@@ -247,6 +265,7 @@ class EpigramStore():
               _epigram_cache (list of Epigram) - internal loaded cached
         """
         self._filename = filename
+        self._force_random = force_random
 
         db_uri = 'sqlite:///' + self._filename
         self._engine = create_engine(db_uri, echo=False)
@@ -254,13 +273,69 @@ class EpigramStore():
         Session.configure(bind=self._engine)
         self._session = Session()
         Base.metadata.create_all(self._engine)
+        self._load_sql_files()
+
+
+
+    def _load_sql_files(self, file_dir=SQL_DIR):
+        uri = os.path.realpath(file_dir)
+
+        if os.path.isdir(uri):
+            sql_files = glob.glob(uri + "/*")
+        elif os.path.isfile(uri):
+            sql_files = [uri]
+        else:
+            raise RuntimeError("FileNotFound: "  + uri)
+
+        sql_files.sort()
+
+        for fname in sql_files:
+            with open(fname, 'r') as sql_text:
+                log.debug(f"Processing %s file" % (fname))
+                self._execute_sql(sql_text.read())
+
+    def _execute_sql(self, sql_text):
+        self._engine.execute(sql_text)
+
+
+    def _get_weighted_bucket(self):
+        """
+        Using the patented BucketSort(TM) Technology this queries the impressions_calculated
+        table.  This factors in the relative weights of each bucket compared to its actual
+        impressions.  Buckets that have exceeded their allowable view percentage are excluded
+        from selection.
+
+        The selection itself is using the random.choice() method based on the probabilities
+
+        :return: the bucket_id to use in the get epigram query
+        """
+
+        rs = self._engine.execute("""
+            select bucket_id, effective_impression_percentage from impressions_calculated 
+             where impression_delta >= 0
+            """)
+
+        buckets = []
+        probabilties = []
+
+        for row in rs:
+            buckets.append(row[0])
+            probabilties.append(row[1])
+
+        try:
+            bucket = random.choices(buckets, weights=probabilties)[0]
+            return bucket
+        except:
+            return None
+
+
 
     def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket_name=None, bucket=None):
         """ Get a epigram considering filter criteria and weight rules
 
             Keyword Arguments:
             uuid (str) - return this specific epigram
-            internal_fetch_ratio (int) - see the README for info on the
+            internal_fetch_ratio (int) - see the README.adoc for info on the
                                                   weighting algorithm
             bucket_name (str) - the natural key for the buckets
             bucket - a bucket object
@@ -268,17 +343,27 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
+        q = self._session.query(Epigram).join(Bucket).order_by(Epigram.last_impression_date.asc())
 
-        q = self._session.query(Epigram).join(Bucket)
+        if bucket_name is not None:
+            q = q.filter(Bucket.name == bucket_name)
+        else:
+            bucket = self._get_weighted_bucket()
+            if bucket is not None:
+                q = q.filter_by(bucket_id = bucket)
 
-        if (bucket_name is not None):
-            q.filter(Bucket.name == bucket_name)
-            pass
+        if self._force_random == True:
+            rowCount = q.count()
+            q = q.offset(int(rowCount * random.random()))
 
         x = q.first()
+
         log.debug(f"Retrieved Epigram {x}")
-        self.add_impression(x)
-        return x
+        if x is None:
+            return self.NO_RESULTS_FOUND
+        else:
+            self.add_impression(x)
+            return x
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -305,7 +390,7 @@ class EpigramStore():
             object (str) - desc
         """
         for e in importer.process():
-            # log.debug("Inserting Epigram " + str(e))
+            log.debug("Inserting Epigram " + str(e))
             self._session.add(e)
         self._session.commit()
 
@@ -317,6 +402,7 @@ class EpigramStore():
         """
         imp = Impression(epigram=epigram)
         log.debug(f"Impression tracked - {imp}")
+        epigram.last_impression_date = datetime.datetime.now()
         self._session.add(imp)
         self._session.commit()
 
@@ -333,8 +419,8 @@ class EpigramStore():
 
         q = self._session.query(Impression).join(Bucket)
 
-        if (bucket_name is not None):
-            q.filter(Bucket.name == bucket_name)
+        if bucket_name is not None:
+            q = q.filter(Bucket.name == bucket_name)
 
         return q.count()
 
@@ -353,8 +439,22 @@ class EpigramStore():
         return self._session.query(Bucket).all()
 
 
+
+
 def main():
-    pass
+    CONTAINER_PATH = "/var/fim/fortune.db"
+    HOME_DIR = str(Path.home())+"/.fim/fortune.db"
+
+    if os.path.exists(CONTAINER_PATH):
+        # this is a container with a mounted fim dir
+        db = EpigramStore(CONTAINER_PATH)
+    elif os.path.exists(HOME_DIR):
+        db = EpigramStore(HOME_DIR)
+    else:
+        # This means we are running inside of the container
+        db = EpigramStore("/app/fortune.db", force_random=True)
+
+    print(db.get_epigram().content)
 
 
 if __name__ == '__main__':

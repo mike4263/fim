@@ -1,0 +1,6 @@
+records
+click
+fuzzywuzzy
+#ruamel.yaml = "==0.14.12"
+requests
+pudb
