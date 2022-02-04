@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.sql.expression import func
 from sqlalchemy import (
     Column,
     Integer,
@@ -343,7 +344,7 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-        q = self._session.query(Epigram).join(Bucket).order_by(Epigram.last_impression_date.asc())
+        q = self._session.query(Epigram).join(Bucket).filter(func.length(Epigram.content) < 120).order_by(Epigram.last_impression_date.asc())
 
         if bucket_name is not None:
             q = q.filter(Bucket.name == bucket_name)
@@ -356,6 +357,7 @@ class EpigramStore():
             rowCount = q.count()
             q = q.offset(int(rowCount * random.random()))
 
+        #x = q.first()
         x = q.first()
 
         log.debug(f"Retrieved Epigram {x}")
@@ -438,12 +440,9 @@ class EpigramStore():
         """
         return self._session.query(Bucket).all()
 
-
-
-
 def main():
-    CONTAINER_PATH = "/var/fim/fortune.db"
-    HOME_DIR = str(Path.home())+"/.fim/fortune.db"
+    CONTAINER_PATH = "/var/fim/fim.db"
+    HOME_DIR = str(Path.home())+"/.fim/fim.db"
 
     if os.path.exists(CONTAINER_PATH):
         # this is a container with a mounted fim dir
@@ -452,7 +451,13 @@ def main():
         db = EpigramStore(HOME_DIR)
     else:
         # This means we are running inside of the container
-        db = EpigramStore("/app/fortune.db", force_random=True)
+        db = EpigramStore("/app/fim.db", force_random=True)
+
+
+    if 'FIM_LOAD_FILES' in os.environ and os.environ['FIM_LOAD_FILES'] is not None:
+        db.add_epigrams_via_importer(
+            FortuneFileImporter('content/legacy_fortune/'))
+
 
     print(db.get_epigram().content)
 

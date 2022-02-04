@@ -1,5 +1,5 @@
 #https://pythonspeed.com/articles/base-image-python-docker-images/
-FROM fedora:28
+FROM fedora:35
 COPY . /app
 
 RUN dnf install -y python3 pipenv which

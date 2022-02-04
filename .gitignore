@@ -6,3 +6,4 @@ fortune.db
 fortune.db.bkup
 __pycache__
 .Pipfile.swp
+*swp
