@@ -5,4 +5,4 @@ __pycache__/  # Exclude the whole folder
 fortune.db
 fortune.db.bkup
 __pycache__
-
+.Pipfile.swp
