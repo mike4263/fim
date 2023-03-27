@@ -296,7 +296,9 @@ class EpigramStore():
                 self._execute_sql(sql_text.read())
 
     def _execute_sql(self, sql_text):
-        self._engine.execute(sql_text)
+        with self._engine.connect() as conn:
+           conn.exec_driver_sql(sql_text)
+           #onn self._engine.execute(sql_text)
 
 
     def _get_weighted_bucket(self):
@@ -311,10 +313,14 @@ class EpigramStore():
         :return: the bucket_id to use in the get epigram query
         """
 
-        rs = self._engine.execute("""
+        rs = []
+        
+
+        with self._engine.connect() as conn:
+            rs = conn.exec_driver_sql("""
             select bucket_id, effective_impression_percentage from impressions_calculated 
              where impression_delta >= 0
-            """)
+            """).all()
 
         buckets = []
         probabilties = []
