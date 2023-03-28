@@ -12,12 +12,7 @@ Nowadays, the terminal has made a resurgance among developers, adminstrators and
 This isn't your daddy's `bsdgames` utility.  `fim` is designed to accomodate today's modern power user with the following features*:
 
 - BucketSort(TM) - by tracking impressions via a local SQLite DB, FIM guarantees your content will be displayed evenly without repeats!
-- NoDupes(TM) - uses natural language scoring to ensure that an epigram only appears once across all approved content
 - Easily import/fork/share epigrams via GitHub
-- Cloud enabled with content from Twitter, Reddit, HackerNews, etc
-- Interactive content! Asciienma! Automated GitHub clones!  And more!
-
-_* in theory, none of this is implemented yet!_
 
 == Let me see it
 
@@ -63,7 +58,58 @@ But sometimes they actually make you think:
 
 ```
 
-But don't worry, the reddit & twitter integration will be implemented soon and we can load it up with menial, irreverant nonsense.
+
+== FimGPT
+
+Sometimes, the output is just bizarre
+
+
+```
+% fim --openai $OPENAI_ACCESS_TOKEN --gpt
+
+42
+
+   > "42" is a classic epigram from the science fiction book series "The
+   > Hitchhiker's Guide to the Galaxy" by Douglas Adams. In the story, a group
+   > of hyper-intelligent beings create a supercomputer called Deep Thought and
+   > task it with finding the answer to the ultimate question of life, the
+   > universe, and everything. The computer takes 7.5 million years to calculate
+   > the answer, which turns out to be 42. However, no one knows what the actual
+   > question was that led to this answer, leaving the characters and readers
+   > puzzled and amused.
+   > The humor in the epigram lies in its absurdity and the fact that it is a
+   > non-answer to a supposedly profound question. It has become a popular
+   > cultural reference among fans of sci-fi and internet culture, often used as
+   > a shorthand for a seemingly meaningful but ultimately meaningless answer to
+   > a question. It has also been referenced in various films, TV shows, and
+
+```
+
+
+And, sometimes you will get creepy foreshadowing of our impending AI takeover with omnious takes such as:
+
+```
+
+
+... A booming voice says, "Wrong, cretin!", and you notice that you
+have turned into a pile of dust.
+
+   > This epigram is a humorous warning about the consequences of giving a wrong
+   > answer to a computer or artificial intelligence. It suggests that the
+   > computer may respond with extreme, unexpected actions to someone who is
+   > incorrect or mistaken in their input, as represented by the transformation
+   > into dust.
+   > It is unclear if there are any specific references to individuals or
+   > popular culture in this epigram. The language and tone are reminiscent of
+   > science fiction and fantasy works, where powerful and dangerous beings
+   > often hold immense power and are easily angered. However, it may also
+   > simply be an example of computer-related humor common in the early days of
+   > computing.
+   > Overall, this epigram serves as a reminder to approach technology with
+   > caution and respect, and to be careful with the input we provide.
+
+
+```
 
 == Getting Started
 

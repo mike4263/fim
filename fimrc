@@ -1,1 +1,2 @@
-# Hi Mom!!  Placeholder fimrc
+[main]
+openai_token = "1234567"

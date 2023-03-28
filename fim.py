@@ -8,9 +8,12 @@ import os
 import glob
 import random
 import sys
+import secrets
 from pathlib import Path
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+
+import toml as toml
+#from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql.expression import func
 from sqlalchemy import (
     Column,
@@ -20,15 +23,18 @@ from sqlalchemy import (
     create_engine
 )
 import datetime
-
+import prompt_toolkit
+import argparse
+import toml
+import openai
 
 """ fim - fortune improved """
-
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler(sys.stdout))
 #logging.basicConfig(level=logging.ERROR)
 log.setLevel(logging.INFO)
+
 
 Session = sessionmaker()
 Base = declarative_base()
@@ -99,6 +105,7 @@ class Epigram(Base):
     # used with content_type (i.e. asciicast overview)
     action_url = Column(String)
     context_url = Column(String)  # deep dive info link (i.e. github repo)
+    gpt_completion = Column(String)
 
     def __init__(self, **kwargs):
         self.epigram_uuid = generate_uuid()
@@ -221,7 +228,7 @@ class FortuneFileImporter(BaseImporter):
         return Bucket(name=bucket_name)
 
     @classmethod
-    def process_fortune_file(self, file_contents):
+    def process_fortune_file(cls, file_contents):
         delimiter = re.compile(r'^%$')
         e = ''
         for f in file_contents.split("\n"):
@@ -251,7 +258,7 @@ class EpigramStore():
     GENERAL_ERROR = Epigram(content="Always bring a towel (500: General Error)", bucket_id=123)
     SQL_DIR="sql"
 
-    def __init__(self, filename, force_random=False, skip_dupes=False, _epigram_cache=[]):
+    def __init__(self, filename, force_random=True, skip_dupes=False, _epigram_cache=[]):
         """ Construct the store (connect to db, optionally retrieve all rows)
 
             Positional Arguments:
@@ -350,7 +357,9 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-        q = self._session.query(Epigram).join(Bucket).filter(func.length(Epigram.content) < 120).order_by(Epigram.last_impression_date.asc())
+        q = self._session.query(Epigram).join(Bucket)\
+            .filter(func.length(Epigram.content) < 300)\
+            .order_by(Epigram.last_impression_date.asc())
 
         if bucket_name is not None:
             q = q.filter(Bucket.name == bucket_name)
@@ -372,6 +381,14 @@ class EpigramStore():
         else:
             self.add_impression(x)
             return x
+
+
+
+    def get_last_epigram(self):
+        q = self._session.query(Epigram).join(Impression)\
+            .order_by(Epigram.last_impression_date.desc())
+        return q.first()
+
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -446,27 +463,155 @@ class EpigramStore():
         """
         return self._session.query(Bucket).all()
 
+
+class FIM():
+    _db = None
+
+    """ This class """
+    pass
+    def __init__(self, **kwargs):
+        self._load_db()
+
+    def _load_db(self):
+        CONTAINER_PATH = "/var/fim/fim.db"
+        HOME_DIR = str(Path.home()) + "/.fim/fim.db"
+
+        if os.path.exists(CONTAINER_PATH):
+            # this is a container with a mounted fim dir
+            self._db = EpigramStore(CONTAINER_PATH)
+        elif os.path.exists(HOME_DIR):
+            self._db = EpigramStore(HOME_DIR)
+        else:
+            # This means we are running inside of the container
+            self._db = EpigramStore("/app/fim.db", force_random=True)
+
+    def import_fortune(self, path):
+        self._db.add_epigrams_via_importer(
+            FortuneFileImporter(path))
+
+    def get_epigram(self, bucket_name):
+        return self._db.get_epigram(bucket_name=bucket_name)
+
+    def get_last_epigram(self):
+        return self._db.get_last_epigram()
+
+
+def console(args):
+    print("console")
+
+
+
+class OpenAI():
+    EXPLAIN_PROMPT = """
+    This output is from an application that is designed to display pithy, insightful, meaningful epigrams to users.  
+    Please explain this epigram, including any information about individuals referenced within, explaining the humor, 
+    identifying the origin.  If possible, cite any references of this in popular culture. 
+    """
+
+    MODEL = 'gpt-3.5-turbo'
+    def __init__(self, api_key):
+        openai.api_key = api_key
+
+    def completion(self,epigram):
+        messages = []
+        messages.append({ "role": "user", "content": self.EXPLAIN_PROMPT})
+        messages.append({ "role": "user", "content": "The epigram comes from a file called " + epigram.bucket.name})
+        messages.append({ "role": "user", "content": epigram.content})
+
+        completion = openai.ChatCompletion.create(model=self.MODEL, messages=messages)
+        log.debug(completion)
+        return fmt(completion.choices[0].message.content)
+
+
+def context(openai_api, e):
+    gpt = OpenAI(openai_api)
+    print(gpt.completion(e))
+    print()
+
+
+def fmt(text, width=78, indent=2):
+    lines = text.split('\n')
+
+    formatted_lines = []
+    current_line = ''
+    for line in lines:
+        words = line.split()
+        for word in words:
+            if len(current_line) + len(word) + 1 <= width - indent:
+                current_line += word + ' '
+            else:
+                formatted_lines.append(' ' * indent + " > " + current_line.rstrip())
+                current_line = word + ' '
+        if current_line:
+            formatted_lines.append(' ' * indent + " > " + current_line.rstrip())
+            current_line = ''
+
+    return '\n'.join(formatted_lines)
+
+def print_epigram(epigram):
+    print()
+    print(epigram.content)
+    print()
+
+
 def main():
-    CONTAINER_PATH = "/var/fim/fim.db"
-    HOME_DIR = str(Path.home())+"/.fim/fim.db"
+    parser = argparse.ArgumentParser(prog='fim.py')
 
-    if os.path.exists(CONTAINER_PATH):
-        # this is a container with a mounted fim dir
-        db = EpigramStore(CONTAINER_PATH)
-    elif os.path.exists(HOME_DIR):
-        db = EpigramStore(HOME_DIR)
+    parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
+    parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
+    parser.add_argument('--bucket', help="constrain searches to this bucket")
+
+    subparsers = parser.add_subparsers(dest = 'command')
+
+    import_parser = subparsers.add_parser('import')
+    import_parser.add_argument('source_type', choices=['fortune'])
+    import_parser.add_argument('path', help='path to the file or directory to import', metavar='PATH')
+
+    console_parser = subparsers.add_parser('console')
+    console_parser.set_defaults(func=console)
+
+    context_parser = subparsers.add_parser('context')
+    context_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
+    #context_parser.add_argument('context_type', choices=['gpt','dalle'])
+    args = parser.parse_args()
+
+    with open("fimrc") as f:
+        config = toml.load(f)
+
+    MAIN = 'main'
+
+
+
+    openai_env = os.environ['OPENAI_ACCESS_TOKEN']
+    if ( args.openai != None ):
+        openai_api = args.openai[0]
+    elif ( openai_env != None):
+        openai_api = openai_env
     else:
-        # This means we are running inside of the container
-        db = EpigramStore("/app/fim.db", force_random=True)
+        openai_api = config[MAIN]['openai_token']
+
+    log.debug("OpenAI Token : " + openai_api)
 
 
-    if 'FIM_LOAD_FILES' in os.environ and os.environ['FIM_LOAD_FILES'] is not None:
-        db.add_epigrams_via_importer(
-            FortuneFileImporter('content/legacy_fortune/'))
+    fim = FIM()
 
+    if args.command == "import":
+        if args.source_type == 'fortune':
+            fim.import_fortune(args.path)
+        else:
+            raise NotImplemented()
+    elif args.command == "console":
+        console(args)
+    elif args.command == "context":
+        e = fim.get_last_epigram()
+        print_epigram(e)
+        context(openai_api, e)
 
-    print(db.get_epigram().content)
-
+    else:
+        e = fim.get_epigram(args.bucket)
+        print_epigram(e)
+        if args.gpt:
+            context(openai_api, e)
 
 if __name__ == '__main__':
     main()

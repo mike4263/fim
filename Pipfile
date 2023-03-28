@@ -11,5 +11,8 @@ fuzzywuzzy = "*"
 requests = "*"
 pudb = "*"
 coverage = "*"
+prompt_toolkit = "*"
+openai = "*"
+toml = "*"
 
 [dev-packages]

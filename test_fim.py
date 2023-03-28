@@ -79,6 +79,17 @@ class EpigramStoreTest(unittest.TestCase):
         result = self.db.get_epigram()
         self.assertEqual(result.content, epi.content)
 
+
+    def test_add_and_get_last_epigram(self):
+        epi = get_random_epigram()
+        self.db.add_epigram(epi)
+        result = self.db.get_epigram()
+        self.assertEqual(result.content, epi.content)
+
+        last_result = self.db.get_last_epigram()
+        self.assertEqual(result, last_result)
+
+
     def test_add_entire_directory_with_timing(self):
         start = time.time()
         self.db.add_epigrams_via_importer(
@@ -112,10 +123,10 @@ class EpigramStoreTest(unittest.TestCase):
         self.db.add_epigrams_via_importer(
             FortuneFileImporter('test_data/basic/'))
 
-        for x in range(13):
+        for x in range(14):
             self.db.get_epigram()
 
-        self.assertEqual(13, self.db.get_impression_count())
+        self.assertEqual(14, self.db.get_impression_count())
         no_impressions = self.db._session.query(Epigram).filter(Epigram.last_impression_date == None).count()
         self.assertEqual(1, no_impressions)
 
