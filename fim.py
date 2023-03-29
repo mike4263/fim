@@ -468,18 +468,24 @@ class FIM():
     def __init__(self, **kwargs):
         self._load_db()
 
+        # TODO: make this more configurable
+
     def _load_db(self):
-        CONTAINER_PATH = "/var/fim/fim.db"
-        HOME_DIR = str(Path.home()) + "/.fim/fim.db"
+        DB_NAME = "fim.db"
+        CONTAINER_PATH = "/var/fim/"
+        HOME_DIR = str(Path.home()) + "/.fim/"
 
         if os.path.exists(CONTAINER_PATH):
             # this is a container with a mounted fim dir
             self._db = EpigramStore(CONTAINER_PATH)
-        elif os.path.exists(HOME_DIR):
-            self._db = EpigramStore(HOME_DIR)
         else:
+            if not os.path.exists(HOME_DIR):
+                os.makedir(HOME_DIR)
+
+            self._db = EpigramStore(HOME_DIR + DB_NAME)
+        #else:
             # This means we are running inside of the container
-            self._db = EpigramStore("/app/fim.db", force_random=True)
+            #self._db = EpigramStore("/app/fim.db")
 
     def import_fortune(self, path):
         self._db.add_epigrams_via_importer(
@@ -614,7 +620,11 @@ def main():
 
     MAIN = 'main'
 
-    openai_env = os.environ['OPENAI_ACCESS_TOKEN']
+    try:
+        openai_env = os.environ['OPENAI_ACCESS_TOKEN']
+    except KeyError:
+        openai_env = None
+
     if (args.openai != None):
         openai_api = args.openai[0]
     elif (openai_env != None):

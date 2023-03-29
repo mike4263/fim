@@ -7,3 +7,5 @@ fortune.db.bkup
 __pycache__
 .Pipfile.swp
 *swp
+fim.db
+requirements.txt

@@ -5,6 +5,9 @@ install:
 test: 
 	pipenv run python test_fim.py
 
-
-docker: 
+container: 
+	pipenv lock --requirements > requirements.txt
 	podman build . -t fim:latest
+
+run:
+	pipenv run python fim.py
