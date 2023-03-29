@@ -3,8 +3,8 @@ create view impressions_calculated as
            from
        (select bs.bucket_id, bs.name,
        (bs.epigram_weight / tc.total_weighted_sum) as expected_weighted_percentage,
-       (bs.padded_impressions / tc.total_padded_impressions) as actual_impression_percentage,
-       (bs.epigram_weight / tc.total_weighted_sum - bs.padded_impressions / tc.total_padded_impressions) as impression_delta
+       (bs.real_impressions / tc.total_padded_impressions) as actual_impression_percentage,
+       (bs.epigram_weight / tc.total_weighted_sum - bs.real_impressions / tc.total_padded_impressions) as impression_delta
        --(bs.epigram_weight / tc.total_weighted_sum ) as view_modifier,
        --(bs.padded_impressions / tc.total_padded_impressions - bs.epigram_weight / tc.total_weighted_sum) as impression_delta2
 

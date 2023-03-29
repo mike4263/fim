@@ -32,7 +32,7 @@ class S(BaseHTTPRequestHandler):
         """This just generates an HTML document that includes `message`
         in the body. Override, or re-write this do do more interesting stuff.
         """
-        content =  globalDB.get_epigram().content
+        content =  globalDB.get_epigram_impression().epigram.content
         #content = f"<html><body><h1>{message}</h1></body></html>"
         return content.encode("utf8")  # NOTE: must return a bytes object!
 

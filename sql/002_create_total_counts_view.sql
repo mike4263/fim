@@ -5,8 +5,9 @@ select (total_impression_t.total_padded_impressions * 1.0) as total_padded_impre
 
 from bucket b
          left outer join
+     -- this used to be "padded" by  +1 impressions, but that was wrong then and wrong now
      (select sum(t.impressions) as total_padded_impressions
-      from (select b.bucket_id, (count(i.impression_id) + 1.0) as impressions
+      from (select b.bucket_id, (count(i.impression_id)) as impressions
             from bucket b
                      left join impression i on b.bucket_id = i.bucket_id
             group by b.bucket_id

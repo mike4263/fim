@@ -12,18 +12,19 @@ import secrets
 from pathlib import Path
 
 import toml as toml
-#from sqlalchemy.ext.declarative import declarative_base
+# from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql.expression import func
 from sqlalchemy import (
     Column,
     Integer,
     String,
+    Boolean,
     ForeignKey,
     create_engine
 )
 import datetime
-import prompt_toolkit
+from prompt_toolkit import prompt
 import argparse
 import toml
 import openai
@@ -32,15 +33,16 @@ import openai
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler(sys.stdout))
-#logging.basicConfig(level=logging.ERROR)
+# logging.basicConfig(level=logging.ERROR)
 log.setLevel(logging.INFO)
-
 
 Session = sessionmaker()
 Base = declarative_base()
 
 # this is my homebrew id generator for bucket id generatio
 i = 0
+
+
 def mydefault():
     global i
     i += 1
@@ -63,14 +65,14 @@ class Bucket(Base):
     name = Column(String(50))
     item_weight = Column(Integer, default=1)
 
-#    def __init__(self, name, **kwargs):
-#        super()
-#        self.name = name
-#        self.bucket_id = mydefault()
-
+    #    def __init__(self, name, **kwargs):
+    #        super()
+    #        self.name = name
+    #        self.bucket_id = mydefault()
 
     def __str__(self):
         return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
+
 
 def generate_uuid():
     return str(uuid_stdlib.uuid4())
@@ -137,6 +139,8 @@ class Impression(Base):
     epigram_uuid = Column(String, ForeignKey("epigram.epigram_uuid"))
     epigram = relationship("Epigram", backref="impression")
     impression_date = Column(String)
+    saved = Column(Boolean)
+    gpt_completion = Column(String)
 
     def __init__(self, **kwargs):
 
@@ -256,24 +260,18 @@ class EpigramStore():
     NO_RESULTS_FOUND = Epigram(
         content="Your princess is in another castle. (404: File Not Found) ", bucket_id=123)
     GENERAL_ERROR = Epigram(content="Always bring a towel (500: General Error)", bucket_id=123)
-    SQL_DIR="sql"
+    SQL_DIR = "sql"
 
-    def __init__(self, filename, force_random=True, skip_dupes=False, _epigram_cache=[]):
+    def __init__(self, filename):
         """ Construct the store (connect to db, optionally retrieve all rows)
 
             Positional Arguments:
             filename (str) - the path to the SQLite database
 
             Optional Params:
-            skip_dupes (bool) - check each new epigram using fuzzy string
-                                    matching.  Requires all existing records
-                                    to be loaded into memory.
-
-            Private Class Variables:
-              _epigram_cache (list of Epigram) - internal loaded cached
+            force_random (Bool)  -
         """
         self._filename = filename
-        self._force_random = force_random
 
         db_uri = 'sqlite:///' + self._filename
         self._engine = create_engine(db_uri, echo=False)
@@ -283,8 +281,6 @@ class EpigramStore():
         Base.metadata.create_all(self._engine)
         self._load_sql_files()
 
-
-
     def _load_sql_files(self, file_dir=SQL_DIR):
         uri = os.path.realpath(file_dir)
 
@@ -293,7 +289,7 @@ class EpigramStore():
         elif os.path.isfile(uri):
             sql_files = [uri]
         else:
-            raise RuntimeError("FileNotFound: "  + uri)
+            raise RuntimeError("FileNotFound: " + uri)
 
         sql_files.sort()
 
@@ -304,9 +300,8 @@ class EpigramStore():
 
     def _execute_sql(self, sql_text):
         with self._engine.connect() as conn:
-           conn.exec_driver_sql(sql_text)
-           #onn self._engine.execute(sql_text)
-
+            conn.exec_driver_sql(sql_text)
+            # onn self._engine.execute(sql_text)
 
     def _get_weighted_bucket(self):
         """
@@ -321,7 +316,6 @@ class EpigramStore():
         """
 
         rs = []
-        
 
         with self._engine.connect() as conn:
             rs = conn.exec_driver_sql("""
@@ -342,9 +336,8 @@ class EpigramStore():
         except:
             return None
 
-
-
-    def get_epigram(self, uuid=None, internal_fetch_ratio=1.0, bucket_name=None, bucket=None):
+    def get_epigram_impression(self, uuid=None, internal_fetch_ratio=0.1, force_random=True, bucket_name=None,
+                               bucket=None):
         """ Get a epigram considering filter criteria and weight rules
 
             Keyword Arguments:
@@ -357,8 +350,8 @@ class EpigramStore():
             Return:
             An Epigram (obviously)
         """
-        q = self._session.query(Epigram).join(Bucket)\
-            .filter(func.length(Epigram.content) < 300)\
+        q = self._session.query(Epigram).join(Bucket) \
+            .filter(func.length(Epigram.content) < 300) \
             .order_by(Epigram.last_impression_date.asc())
 
         if bucket_name is not None:
@@ -366,29 +359,27 @@ class EpigramStore():
         else:
             bucket = self._get_weighted_bucket()
             if bucket is not None:
-                q = q.filter_by(bucket_id = bucket)
+                q = q.filter_by(bucket_id=bucket)
 
-        if self._force_random == True:
-            rowCount = q.count()
-            q = q.offset(int(rowCount * random.random()))
+        if force_random == True:
+            rowCount = q.count() * internal_fetch_ratio * random.random()
+            log.debug(f"offsetting by %s rows" % rowCount)
+            q = q.offset(int(rowCount))
 
-        #x = q.first()
+        # x = q.first()
         x = q.first()
 
         log.debug(f"Retrieved Epigram {x}")
         if x is None:
-            return self.NO_RESULTS_FOUND
+            return Impression(epigram=self.NO_RESULTS_FOUND)
         else:
-            self.add_impression(x)
-            return x
+            imp = self.add_impression(x)
+            return imp
 
-
-
-    def get_last_epigram(self):
-        q = self._session.query(Epigram).join(Impression)\
+    def get_last_impression(self):
+        q = self._session.query(Impression).join(Epigram) \
             .order_by(Epigram.last_impression_date.desc())
         return q.first()
-
 
     def add_epigram(self, epigram):
         """ Add an epigram to the store
@@ -430,6 +421,7 @@ class EpigramStore():
         epigram.last_impression_date = datetime.datetime.now()
         self._session.add(imp)
         self._session.commit()
+        return imp
 
     def get_impression_count(self, bucket_name=None, unique=False):
         """
@@ -463,12 +455,16 @@ class EpigramStore():
         """
         return self._session.query(Bucket).all()
 
+    def commit(self):
+        return self._session.commit()
+
 
 class FIM():
     _db = None
 
     """ This class """
     pass
+
     def __init__(self, **kwargs):
         self._load_db()
 
@@ -489,17 +485,22 @@ class FIM():
         self._db.add_epigrams_via_importer(
             FortuneFileImporter(path))
 
-    def get_epigram(self, bucket_name):
-        return self._db.get_epigram(bucket_name=bucket_name)
+    def get_epigram_impression(self, bucket_name):
+        return self._db.get_epigram_impression(bucket_name=bucket_name)
 
-    def get_last_epigram(self):
-        return self._db.get_last_epigram()
+    def get_last_impression(self):
+        return self._db.get_last_impression()
+
+    def save_gpt_output(self, impression: Impression, output):
+        impression.gpt_completion = output
+        self.commit_db()
+
+    def commit_db(self):
+        self._db.commit()
 
 
 def console(args):
     print("console")
-
-
 
 class OpenAI():
     EXPLAIN_PROMPT = """
@@ -509,24 +510,52 @@ class OpenAI():
     """
 
     MODEL = 'gpt-3.5-turbo'
+    #MODEL = 'gpt-4'
+
     def __init__(self, api_key):
         openai.api_key = api_key
+        self.messages = []
 
-    def completion(self,epigram):
-        messages = []
-        messages.append({ "role": "user", "content": self.EXPLAIN_PROMPT})
-        messages.append({ "role": "user", "content": "The epigram comes from a file called " + epigram.bucket.name})
-        messages.append({ "role": "user", "content": epigram.content})
+    def complete_epigram(self, epigram):
+        self.messages.append({"role": "user", "content": self.EXPLAIN_PROMPT})
+        self.messages.append({"role": "user", "content": "The epigram comes from a file called " + epigram.bucket.name})
+        self.messages.append({"role": "user", "content": epigram.content})
 
-        completion = openai.ChatCompletion.create(model=self.MODEL, messages=messages)
+        return self._send_message()
+
+    def chat(self, chat_prompt):
+        self.messages.append({"role": "user", "content": chat_prompt})
+        return self._send_message()
+
+    def _send_message(self):
+        completion = openai.ChatCompletion.create(model=self.MODEL, messages=self.messages)
         log.debug(completion)
-        return fmt(completion.choices[0].message.content)
+        choices = completion.choices[0]
+        # self.messages.append(completion.choices[0])
+        return completion.choices[0].message.content
 
 
-def context(openai_api, e):
+def context(openai_api, imp, chat=False):
     gpt = OpenAI(openai_api)
-    print(gpt.completion(e))
+    output = gpt.complete_epigram(imp.epigram)
+    print(fmt(output))
     print()
+
+    if chat:
+        print(r'''
+ 
+ ENTERING Chat Session ( quit ) to exit, Ctrl+Enter to send
+        ''')
+
+    while chat:
+        input_prompt = prompt('Enter prompt: ', multiline=True, vi_mode=True)
+
+        if input_prompt == "quit":
+            chat = False
+        else:
+            print()
+            print(fmt(gpt.chat(input_prompt)))
+            print()
 
 
 def fmt(text, width=78, indent=2):
@@ -548,6 +577,7 @@ def fmt(text, width=78, indent=2):
 
     return '\n'.join(formatted_lines)
 
+
 def print_epigram(epigram):
     print()
     print(epigram.content)
@@ -561,7 +591,7 @@ def main():
     parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
     parser.add_argument('--bucket', help="constrain searches to this bucket")
 
-    subparsers = parser.add_subparsers(dest = 'command')
+    subparsers = parser.add_subparsers(dest='command')
 
     import_parser = subparsers.add_parser('import')
     import_parser.add_argument('source_type', choices=['fortune'])
@@ -572,7 +602,11 @@ def main():
 
     context_parser = subparsers.add_parser('context')
     context_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
-    #context_parser.add_argument('context_type', choices=['gpt','dalle'])
+    # context_parser.add_argument('context_type', choices=['gpt','dalle'])
+
+    save_parser = subparsers.add_parser('save')
+    chat_parser = subparsers.add_parser('chat')
+
     args = parser.parse_args()
 
     with open("fimrc") as f:
@@ -580,18 +614,15 @@ def main():
 
     MAIN = 'main'
 
-
-
     openai_env = os.environ['OPENAI_ACCESS_TOKEN']
-    if ( args.openai != None ):
+    if (args.openai != None):
         openai_api = args.openai[0]
-    elif ( openai_env != None):
+    elif (openai_env != None):
         openai_api = openai_env
     else:
         openai_api = config[MAIN]['openai_token']
 
     log.debug("OpenAI Token : " + openai_api)
-
 
     fim = FIM()
 
@@ -602,16 +633,27 @@ def main():
             raise NotImplemented()
     elif args.command == "console":
         console(args)
-    elif args.command == "context":
-        e = fim.get_last_epigram()
-        print_epigram(e)
-        context(openai_api, e)
+    elif args.command == "context" or args.command == "chat":
+        imp = fim.get_last_impression()
+        print_epigram(imp.epigram)
+        chatMode = True if args.command == "chat" else False
+        output = context(openai_api, imp, chat=chatMode)
+        fim.save_gpt_output(imp, output)
+    elif args.command == "save":
+        imp = fim.get_last_impression()
+        imp.saved = True
+        fim.commit_db()
+
+        print_epigram(imp.epigram)
+
+        print(" ********* SAVED *********")
 
     else:
-        e = fim.get_epigram(args.bucket)
-        print_epigram(e)
+        e = fim.get_epigram_impression(args.bucket)
+        print_epigram(e.epigram)
         if args.gpt:
             context(openai_api, e)
+
 
 if __name__ == '__main__':
     main()

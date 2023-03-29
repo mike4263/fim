@@ -61,8 +61,7 @@ But sometimes they actually make you think:
 
 == FimGPT
 
-Sometimes, the output is just bizarre
-
+Sometimes, the output is just bizarre or foreign.  Never fear!  We can ask ChatGPT!
 
 ```
 % fim --openai $OPENAI_ACCESS_TOKEN --gpt
@@ -108,6 +107,47 @@ have turned into a pile of dust.
    > Overall, this epigram serves as a reminder to approach technology with
    > caution and respect, and to be careful with the input we provide.
 
+
+```
+
+
+```
+% fim
+
+The use of anthropomorphic terminology when dealing with computing systems
+is a symptom of professional immaturity.
+		-- Edsger Dijkstra
+```
+
+
+```
+
+% fim context
+
+The use of anthropomorphic terminology when dealing with computing systems
+is a symptom of professional immaturity.
+		-- Edsger Dijkstra
+
+   > This epigram is a witty observation by computer scientist Edsger Dijkstra
+   > on the tendency of people to refer to their computing systems in human
+   > terms, such as "intelligent" or "stupid." Dijkstra argues that this is
+   > evidence of a lack of professionalism in the industry, as it demonstrates a
+   > childish and irrational approach to technology.
+   > The reference to "anthropomorphic terminology" refers to the use of
+   > human-like characteristics to describe non-human entities, such as
+   > computers. Dijkstra criticizes this habit, suggesting that it is indicative
+   > of the field's immaturity and lack of rigor.
+   > Edsger Dijkstra was a Dutch computer scientist who made important
+   > contributions to the field of software engineering. He was known for his
+   > work on the development of programming languages and algorithms. He won the
+   > Turing Award, one of the most prestigious honors in computer science, in
+   > 1972.
+   > This epigram is often cited in discussions of computer science and
+   > technology, particularly in debates over the role of artificial
+   > intelligence and the potential for technological singularity. It has also
+   > been referenced in popular culture, such as in the TV show "Person of
+   > Interest," where a character quotes the epigram in an episode about the
+   > dangers of artificial intelligence.
 
 ```
 
