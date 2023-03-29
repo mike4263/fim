@@ -73,6 +73,9 @@ class Bucket(Base):
     def __str__(self):
         return f"<Bucket bucket_id={self.bucket_id}, name={self.name}>"
 
+    def public(self):
+        pass
+
 
 def generate_uuid():
     return str(uuid_stdlib.uuid4())
@@ -129,6 +132,10 @@ class Epigram(Base):
     def generate_uuid(cls):
         return str(uuid_stdlib.uuid1())
 
+    def public(self):
+        """ This is necessary to fix a pylint error """
+        pass
+
 
 class Impression(Base):
     """ Track the views for each epigram """
@@ -158,6 +165,12 @@ class Impression(Base):
             f"epigram_uuid={self.epigram_uuid}, " + \
             f"bucket_id={self.bucket_id}, " + \
             f"bucket={self.bucket}>"
+
+
+    def public(self):
+        """ This is necessary to fix a pylint error """
+        pass
+
 
 
 class BaseImporter():
@@ -462,27 +475,13 @@ class EpigramStore():
 class FIM():
     _db = None
 
-    """ This class """
-    pass
+    def __init__(self, db_name="fim.db", path="/var/fim", **kwargs):
 
-    def __init__(self, **kwargs):
-        self._load_db()
 
-        # TODO: make this more configurable
+        if not os.path.exists(path):
+            os.makedirs(path)
 
-    def _load_db(self):
-        DB_NAME = "fim.db"
-        CONTAINER_PATH = "/var/fim/"
-        HOME_DIR = str(Path.home()) + "/.fim/"
-
-        if os.path.exists(CONTAINER_PATH):
-            # this is a container with a mounted fim dir
-            self._db = EpigramStore(CONTAINER_PATH)
-        else:
-            if not os.path.exists(HOME_DIR):
-                os.makedir(HOME_DIR)
-
-            self._db = EpigramStore(HOME_DIR + DB_NAME)
+        self._db = EpigramStore(path + db_name)
         #else:
             # This means we are running inside of the container
             #self._db = EpigramStore("/app/fim.db")
@@ -563,6 +562,8 @@ def context(openai_api, imp, chat=False):
             print(fmt(gpt.chat(input_prompt)))
             print()
 
+    return output
+
 
 def fmt(text, width=78, indent=2):
     lines = text.split('\n')
@@ -590,14 +591,19 @@ def print_epigram(epigram):
     print()
 
 
-def main():
-    parser = argparse.ArgumentParser(prog='fim.py')
+def setup_argparse():
+    parent_parser = argparse.ArgumentParser(prog='fim.py')
 
-    parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
-    parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
-    parser.add_argument('--bucket', help="constrain searches to this bucket")
+    parent_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
+    parent_parser.add_argument('--bucket', help="constrain searches to this bucket")
+    parent_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
+    parent_parser.add_argument('--db', help="path to db file")
 
-    subparsers = parser.add_subparsers(dest='command')
+
+    subparsers = parent_parser.add_subparsers(dest='command' )
+
+    child_parser = argparse.ArgumentParser(add_help=False)
+    child_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
 
     import_parser = subparsers.add_parser('import')
     import_parser.add_argument('source_type', choices=['fortune'])
@@ -612,14 +618,19 @@ def main():
 
     save_parser = subparsers.add_parser('save')
     chat_parser = subparsers.add_parser('chat')
+    return parent_parser.parse_args()
 
-    args = parser.parse_args()
+def main():
+
+    args = setup_argparse()
 
     with open("fimrc") as f:
         config = toml.load(f)
 
     MAIN = 'main'
 
+
+    # determine OpenAI token
     try:
         openai_env = os.environ['OPENAI_ACCESS_TOKEN']
     except KeyError:
@@ -634,13 +645,26 @@ def main():
 
     log.debug("OpenAI Token : " + openai_api)
 
-    fim = FIM()
+
+    # Determine Home directory
+    HOME_DIR = str(Path.home()) + "/.fim/"
+    CONTAINER_PATH = "/var/fim/"
+
+    if (args.db is not None):
+        path = args.db
+    elif (os.path.exists(CONTAINER_PATH)):
+        path = CONTAINER_PATH
+    else:
+        path = HOME_DIR
+
+    log.debug(path)
+    fim = FIM(path=path)
 
     if args.command == "import":
         if args.source_type == 'fortune':
             fim.import_fortune(args.path)
         else:
-            raise NotImplemented()
+            raise NotImplementedError
     elif args.command == "console":
         console(args)
     elif args.command == "context" or args.command == "chat":

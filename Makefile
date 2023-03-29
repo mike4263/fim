@@ -5,7 +5,8 @@ install:
 test: 
 	pipenv run python test_fim.py
 
-container: 
+container:
+    pipenv run ./fim.py --db `pwd` import fortune content/legacy_fortune
 	pipenv lock --requirements > requirements.txt
 	podman build . -t fim:latest
 
