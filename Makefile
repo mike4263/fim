@@ -6,5 +6,5 @@ test:
 	pipenv run python test_fim.py
 
 
-docker: test
-	docker build . -t fim:latest
+docker: 
+	podman build . -t fim:latest

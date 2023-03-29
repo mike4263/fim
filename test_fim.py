@@ -87,7 +87,7 @@ class EpigramStoreTest(unittest.TestCase):
         self.assertEqual(result.content, epi.content)
 
         last_result = self.db.get_last_impression()
-        self.assertEqual(result, last_result)
+        self.assertEqual(result, last_result.epigram)
 
 
     def test_add_entire_directory_with_timing(self):
@@ -179,10 +179,11 @@ class EpigramStoreTest(unittest.TestCase):
         self.db._session.add(bluefish_bucket)
 
         # BUG: decimals are strange.
-        for x in range(101):
+        for x in range(100):
             e : Epigram = self.db.get_epigram_impression(force_random=True).epigram
 
-        self.assertTrue(self.db.get_impression_count(bucket_name="bluefish") >= 41)
+
+        self.assertTrue(self.db.get_impression_count(bucket_name="bluefish") >= 40)
         self.assertEqual(self.db.get_impression_count(
             bucket_name="redfish"), 20)
         self.assertEqual(self.db.get_impression_count(

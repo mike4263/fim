@@ -13,6 +13,7 @@ pudb = "*"
 coverage = "*"
 prompt_toolkit = "*"
 openai = "*"
+chardet = "*"
 toml = "*"
 
 [dev-packages]
