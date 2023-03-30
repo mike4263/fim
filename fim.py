@@ -476,19 +476,15 @@ class FIM():
     _db = None
 
     def __init__(self, db_name="fim.db", path="/var/fim", **kwargs):
-
-
         if not os.path.exists(path):
             os.makedirs(path)
 
-        self._db = EpigramStore(path + db_name)
-        #else:
-            # This means we are running inside of the container
-            #self._db = EpigramStore("/app/fim.db")
+        self._db = EpigramStore(os.path.join(path, db_name))
 
     def import_fortune(self, path):
         self._db.add_epigrams_via_importer(
             FortuneFileImporter(path))
+        log.info("Import complete")
 
     def get_epigram_impression(self, bucket_name):
         return self._db.get_epigram_impression(bucket_name=bucket_name)
@@ -511,7 +507,7 @@ class OpenAI():
     EXPLAIN_PROMPT = """
     This output is from an application that is designed to display pithy, insightful, meaningful epigrams to users.  
     Please explain this epigram, including any information about individuals referenced within, explaining the humor, 
-    identifying the origin.  If possible, cite any references of this in popular culture. 
+    identifying the origin.  If you are aware of any significant references to popular culture, please explain otherwise stay silent. 
     """
 
     MODEL = 'gpt-3.5-turbo'
@@ -657,7 +653,7 @@ def main():
     else:
         path = HOME_DIR
 
-    log.debug(path)
+    log.info(path)
     fim = FIM(path=path)
 
     if args.command == "import":
@@ -683,10 +679,11 @@ def main():
         print(" ********* SAVED *********")
 
     else:
-        e = fim.get_epigram_impression(args.bucket)
-        print_epigram(e.epigram)
+        imp = fim.get_epigram_impression(args.bucket)
+        print_epigram(imp.epigram)
         if args.gpt:
-            context(openai_api, e)
+            output = context(openai_api, imp)
+            fim.save_gpt_output(imp, output)
 
 
 if __name__ == '__main__':
