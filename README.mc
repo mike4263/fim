@@ -2,62 +2,16 @@ fim - fortune improved
 ======================
 
 image:logo.png[400,400,align="center"]
+ 
+[![asciicast](https://asciinema.org/a/61mxiTsix10jFruV2CR9jLw0o.svg)](https://asciinema.org/a/61mxiTsix10jFruV2CR9jLw0o)
 
-Its 2019.  It's time for a modern https://en.wikipedia.org/wiki/Fortune_(Unix)[fortune] replacement.  
+Its 2023.  It's time for a modern https://en.wikipedia.org/wiki/Fortune_(Unix)[fortune] replacement, now with ChatGPT integration!
 
-In case you aren't familiar with the classic utility from `bsdgames`, fortune came from a time before the internet or even https://en.wikipedia.org/wiki/Gopher_(protocol)[Gopher] when people had to dervive all their pleasure from terminal utilities.  It is a way of displaying epigrams - a pithy saying or remark expressing an idea in a clever and amusing way.  It was a time when engineers wore pocket protecters and wrote man pages with words like epigrams in them.
+In case you aren't familiar with the classic utility from `bsdgames`, fortune came from a time before the internet or even https://en.wikipedia.org/wiki/Gopher_(protocol)[Gopher] when people had to derive all their pleasure from terminal utilities.  It is a way of displaying epigrams - a pithy saying or remark expressing an idea in a clever and amusing way.  It was a time when engineers wore pocket protecters and wrote man pages with words like epigrams in them.
 
-Nowadays, the terminal has made a resurgance among developers, adminstrators and other power users with heavy customization through tools such as https://github.com/robbyrussell/oh-my-zsh[oh-my-zsh] and beer emojis in our https://brew.sh/[package managers].  But somehow, we lost the simplicity of reading simple quotes in the terminal.  If your compile doesn't work, read a joke or two.  If you've just `rm -rf /` your database server, maybe some poetry will soften the mood.  If your boss are total jerks, read old school mailing list threads to see how neckbeards used to troll.
+This project had been on indefinite pause until ChatGPT came out and I decided to add support.  It is really quite facsinating interacting with the epigrams and watching it describe them.  Over time, we'll add more support for GPT prompts and becoming a CLI client with rich history tracking.
 
-This isn't your daddy's `bsdgames` utility.  `fim` is designed to accomodate today's modern power user with the following features*:
-
-- BucketSort(TM) - by tracking impressions via a local SQLite DB, FIM guarantees your content will be displayed evenly without repeats!
-- Easily import/fork/share epigrams via GitHub
-
-== Let me see it
-
-`fim` currently supports about 13k epigrams from various sources that I've culled.  Content usally falls into a couple categories - insightful, old computer jokes, random jokes, old stuff.  Not to sugar coat it - these are 30+ year old references and many haven't aged well.
-
-Here's a joke (with `cowsay` for extra emphasis)
-
-```
-[mike@ox]$ fim  | cowsay                                                                                                                                   [3]
- _________________________________________
-/ Do you think that illiterate people get \
-\ the full effect of alphabet soup?       /
- -----------------------------------------
-        \   ^__^
-         \  (oo)\_______
-            (__)\       )\/\
-                ||----w |
-                ||     ||
-
-```
-But sometimes they actually make you think:
-
-```
-[mike@ox]$ fim  | cowsay                                                                                                    
- _________________________________________
-/ Creating computer software is always a  \
-| demanding and painstaking process -- an |
-| exercise in logic, clear expression,    |
-| and almost fanatical attention to       |
-| detail. It requires intelligence,       |
-| dedication, and an enormous amount of   |
-| hard work. But, a certain amount of     |
-| unpredictable and often unrepeatable    |
-| inspiration is what usually makes the   |
-| difference between adequacy and         |
-\ excellence.                             /
- -----------------------------------------
-        \   ^__^
-         \  (oo)\_______
-            (__)\       )\/\
-                ||----w |
-                ||     ||
-
-```
-
+`fim` records all of your impressions into a local SQLite DB.  It uses BucketSort(TM) to guarantees a weighted distribution and _guarantees_ content will be displayed without repeats. `fim` currently supports about 13k epigrams from old `fortune` files.  Content is provided via a submodule to https://github.com/mike4263/fim-content[fim-content].
 
 == FimGPT
 
@@ -156,7 +110,6 @@ is a symptom of professional immaturity.
 Enough chit chat, lets do it:
 
 ```
-docker run mike4263/fim:latest
 ```
 
 This mode is completely stateless.  To maximize your enjoyment, you will need
