@@ -1,9 +1,7 @@
 fim - fortune improved
 ======================
 ![fim](logo.png)
- 
-
-![kirk](kirk.gif)
+![kirk](demo/kirk.gif)
 
 
 Its 2023.  It's time for a modern https://en.wikipedia.org/wiki/Fortune_(Unix)[fortune] replacement, now with ChatGPT integration!
@@ -14,7 +12,8 @@ This project had been on indefinite pause until ChatGPT came out and I decided t
 
 `fim` records all of your impressions into a local SQLite DB.  It uses BucketSort(TM) to guarantees a weighted distribution and _guarantees_ content will be displayed without repeats. `fim` currently supports about 13k epigrams from old `fortune` files.  Content is provided via a submodule to https://github.com/mike4263/fim-content[fim-content].
 
-== FimGPT
+FimGPT
+======
 
 Sometimes, the output is just bizarre or foreign.  Never fear!  We can ask ChatGPT!
 
@@ -106,15 +105,9 @@ is a symptom of professional immaturity.
 
 ```
 
-== Getting Started
-
-Enough chit chat, lets do it:
+Getting Started
+===============
 
 ```
+podman run quay.io/mike4263/fim:latest
 ```
-
-This mode is completely stateless.  To maximize your enjoyment, you will need
-1) a local DB and 2) a `fimrc` file.  Use `setup_fim.sh` to set this up.
-
-
-
