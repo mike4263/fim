@@ -1,7 +1,7 @@
 create view impressions_calculated as
        select calc.*, (expected_weighted_percentage + impression_delta) as effective_impression_percentage
            from
-       (select bs.bucket_id, bs.name,
+       (select bs.bucket_id, bs.name, bs.item_weight,
        (bs.epigram_weight / tc.total_weighted_sum) as expected_weighted_percentage,
        (bs.real_impressions / tc.total_padded_impressions) as actual_impression_percentage,
        (bs.epigram_weight / tc.total_weighted_sum - bs.real_impressions / tc.total_padded_impressions) as impression_delta

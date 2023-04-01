@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+
+print("")
+print("The best way to use \x1b[1mfim\x1b[0m is to put it in your \x1b[1m~/.bashrc\x1b[0m or \x1b[1m~/.zshrc\x1b[0m")
+print("")
+print("Everytime you login you will get a witty epigram, sometimes you want to learn more about it...")
+print("")
+#print("The best way to use \x1lb[1m[fim]\x1b[0m is to put it into your \x1b[1m~/.bashrc\x1b[0m or \x1b[1m~/.zshrc\x1b[0m")
+
+

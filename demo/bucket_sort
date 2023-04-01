@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+
+print("")
+print("FIM organizes content in categories known as buckets")
+print("")
+print("You can create a ~/.fimrc file which let you define weights for each bucket")
+print("")
+#print("The best way to use \x1lb[1m[fim]\x1b[0m is to put it into your \x1b[1m~/.bashrc\x1b[0m or \x1b[1m~/.zshrc\x1b[0m")
+
+

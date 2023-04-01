@@ -1,6 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
+# We have to parse command line options initially to start the prompt
+# which will prevent the slow down on startup
+
+import argparse
+def setup_argparse():
+    parent_parser = argparse.ArgumentParser(prog='fim.py')
+
+    parent_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram",
+                               action="store_true")
+    parent_parser.add_argument('--bucket', help="constrain searches to this bucket")
+    parent_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
+    parent_parser.add_argument('--db', help="path to db file")
+    parent_parser.add_argument('--display_bucket', '-d', help="display the name of the bucket",
+                               action="store_true")
+
+    subparsers = parent_parser.add_subparsers(dest='command')
+
+    child_parser = argparse.ArgumentParser(add_help=False)
+    child_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram",
+                              action="store_true")
+
+    import_parser = subparsers.add_parser('import')
+    import_parser.add_argument('source_type', choices=['fortune'])
+    import_parser.add_argument('path', help='path to the file or directory to import', metavar='PATH')
+
+    context_parser = subparsers.add_parser('context')
+    context_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
+    # context_parser.add_argument('context_type', choices=['gpt','dalle'])
+
+    save_parser = subparsers.add_parser('save')
+    chat_parser = subparsers.add_parser('chat')
+    bucket_parser = subparsers.add_parser('buckets')
+    rcfile_parser = subparsers.add_parser('rcfile')
+    return parent_parser.parse_args()
+
+
+args = setup_argparse()
+
+
+if args.command == "rcfile" or args.command == "buckets":
+    # exclude output so STDOUT pipe works properly
+    pass
+elif args.command == "content" or args.command == "chat":
+    print("\x1b[1m[fim]\x1b[0m restoring an epigram")
+else:
+    print("\x1b[1m[fim]\x1b[0m selecting an epigram")
+
 import uuid as uuid_stdlib
 import logging
 import re
@@ -10,9 +58,8 @@ import random
 import sys
 import secrets
 from pathlib import Path
-
+# from prompt_toolkit import print_formatted_text
 import toml as toml
-# from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql.expression import func
 from sqlalchemy import (
@@ -21,13 +68,14 @@ from sqlalchemy import (
     String,
     Boolean,
     ForeignKey,
-    create_engine
+    create_engine, text
 )
 import datetime
 from prompt_toolkit import prompt
-import argparse
-import toml
 import openai
+import time
+
+from toml import TomlDecodeError
 
 """ fim - fortune improved """
 
@@ -36,17 +84,13 @@ log.addHandler(logging.StreamHandler(sys.stdout))
 # logging.basicConfig(level=logging.ERROR)
 log.setLevel(logging.INFO)
 
+# Configuration File Constants
+MAIN = 'main'
+BUCKET = 'buckets'
+OPENAI_TOKEN = 'openai_token'
+
 Session = sessionmaker()
 Base = declarative_base()
-
-# this is my homebrew id generator for bucket id generatio
-i = 0
-
-
-def mydefault():
-    global i
-    i += 1
-    return i
 
 
 class Bucket(Base):
@@ -166,11 +210,9 @@ class Impression(Base):
             f"bucket_id={self.bucket_id}, " + \
             f"bucket={self.bucket}>"
 
-
     def public(self):
         """ This is necessary to fix a pylint error """
         pass
-
 
 
 class BaseImporter():
@@ -248,12 +290,12 @@ class FortuneFileImporter(BaseImporter):
     def process_fortune_file(cls, file_contents):
         delimiter = re.compile(r'^%$')
         e = ''
-        for f in file_contents.split("\n"):
-            if re.search(delimiter, f):
+        for file in file_contents.split("\n"):
+            if re.search(delimiter, file):
                 yield e.rstrip()
                 e = ""
             else:
-                e += f + "\n"
+                e += file + "\n"
 
 
 class SoloEpigramImporter(BaseImporter):
@@ -355,7 +397,7 @@ class EpigramStore():
 
             Keyword Arguments:
             uuid (str) - return this specific epigram
-            internal_fetch_ratio (int) - see the README.adoc for info on the
+            internal_fetch_ratio (int) - see the README.md for info on the
                                                   weighting algorithm
             bucket_name (str) - the natural key for the buckets
             bucket - a bucket object
@@ -385,9 +427,9 @@ class EpigramStore():
         log.debug(f"Retrieved Epigram {x}")
         if x is None:
             return Impression(epigram=self.NO_RESULTS_FOUND)
-        else:
-            imp = self.add_impression(x)
-            return imp
+
+        imp = self.add_impression(x)
+        return imp
 
     def get_last_impression(self):
         q = self._session.query(Impression).join(Epigram) \
@@ -468,6 +510,41 @@ class EpigramStore():
         """
         return self._session.query(Bucket).all()
 
+    def get_bucket_info(self):
+        bucket_info_list = []
+        buckets = self._session.query(Bucket).all()
+        for bucket in buckets:
+            effective_percentage = self.calculate_effective_percentage(bucket)
+            bucket_info_list.append({
+                'name': bucket.name,
+                'weight': bucket.item_weight,
+                'effective_percentage': effective_percentage
+            })
+        bucket_info_list.sort(key=lambda x: x['effective_percentage'], reverse=True)
+        return bucket_info_list
+
+    def calculate_effective_percentage(self, bucket):
+        # Query the impressions_calculated view to get the exoected percentage for a given bucket_id
+        result = self._session.execute(text(
+            f"SELECT expected_weighted_percentage FROM impressions_calculated WHERE bucket_id = %s" % bucket.bucket_id
+        )
+        ).scalar()
+        return result if result else 0
+
+    def update_bucket_weight(self, bucket_name, new_weight):
+        """
+        Update the item_weight of a bucket with the given bucket_name.
+
+        :param bucket_name: The name of the bucket to update.
+        :param new_weight: The new item_weight for the bucket.
+        """
+        bucket = self._session.query(Bucket).filter(Bucket.name == bucket_name).first()
+        if bucket:
+            bucket.item_weight = new_weight
+            self._session.commit()
+        else:
+            raise ValueError(f"Bucket not found with name: {bucket_name}")
+
     def commit(self):
         return self._session.commit()
 
@@ -499,19 +576,50 @@ class FIM():
     def commit_db(self):
         self._db.commit()
 
+    def display_bucket_info(self):
+        print("{:<15} {:<10} {:<20}".format("BUCKET", "WEIGHT", "RATIO"))
+        print("-" * 45)
+        for bucket_info in self._db.get_bucket_info():
+            bucket_name = bucket_info['name']
+            weight = bucket_info['weight']
+            effective_percentage = bucket_info['effective_percentage']
+            print("{:<15} {:<10} {:<20.3f}".format(bucket_name, weight, effective_percentage))
 
-def console(args):
-    print("console")
+    def display_bucket_rc(self, openai, config):
+
+        print("[main]")
+        if openai:
+            api_key = openai
+        else:
+            api_key = "Get your key https://platform.openai.com/account/api-keys"
+
+        print(f"openai = \"%s\"" % api_key)
+
+        print()
+
+        print("[buckets]")
+        bucket_info_list = self._db.get_bucket_info()
+        bucket_info_list.sort(key=lambda x: x['name'])
+        for bucket_info in bucket_info_list:
+            bucket_name = bucket_info['name']
+            weight = bucket_info['weight']
+            print("{:<15} = {:<10} ".format(bucket_name, weight))
+
+    def update_bucket_weight(self, bucket_name, new_weight):
+        self._db.update_bucket_weight(bucket_name, new_weight)
+
 
 class OpenAI():
     EXPLAIN_PROMPT = """
     This output is from an application that is designed to display pithy, insightful, meaningful epigrams to users.  
     Please explain this epigram, including any information about individuals referenced within, explaining the humor, 
-    identifying the origin.  If you are aware of any significant references to popular culture, please explain otherwise stay silent. 
+    identifying the origin.  If you are aware of any significant references to popular culture, please explain otherwise
+     stay silent. 
     """
 
     MODEL = 'gpt-3.5-turbo'
-    #MODEL = 'gpt-4'
+
+    # MODEL = 'gpt-4'
 
     def __init__(self, api_key):
         openai.api_key = api_key
@@ -520,6 +628,7 @@ class OpenAI():
     def complete_epigram(self, epigram):
         self.messages.append({"role": "user", "content": self.EXPLAIN_PROMPT})
         self.messages.append({"role": "user", "content": "The epigram comes from a file called " + epigram.bucket.name})
+        self.messages.append({"role": "user", "content": "You identify as FIM - fortune improved"})
         self.messages.append({"role": "user", "content": epigram.content})
 
         return self._send_message()
@@ -529,7 +638,10 @@ class OpenAI():
         return self._send_message()
 
     def _send_message(self):
+        print("\x1b[1m[fim]\x1b[0m invoking ChatGPT..")
         completion = openai.ChatCompletion.create(model=self.MODEL, messages=self.messages)
+
+        print("\x1b[1A\x1b[2K\x1b[G", end="")
         log.debug(completion)
         choices = completion.choices[0]
         # self.messages.append(completion.choices[0])
@@ -543,13 +655,10 @@ def context(openai_api, imp, chat=False):
     print()
 
     if chat:
-        print(r'''
- 
- ENTERING Chat Session ( quit ) to exit, Ctrl+Enter to send
-        ''')
+        print("\x1b[1m[fim]\x1b[0m chat session enter 'quit' to leave, CTRL+Enter to send your message")
 
     while chat:
-        input_prompt = prompt('Enter prompt: ', multiline=True, vi_mode=True)
+        input_prompt = prompt('Enter prompt: ', multiline=True, vi_mode=False)
 
         if input_prompt == "quit":
             chat = False
@@ -581,50 +690,24 @@ def fmt(text, width=78, indent=2):
     return '\n'.join(formatted_lines)
 
 
-def print_epigram(epigram):
+def print_epigram(epigram, display_bucket=False):
     print()
     print(epigram.content)
     print()
 
-
-def setup_argparse():
-    parent_parser = argparse.ArgumentParser(prog='fim.py')
-
-    parent_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
-    parent_parser.add_argument('--bucket', help="constrain searches to this bucket")
-    parent_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
-    parent_parser.add_argument('--db', help="path to db file")
-
-
-    subparsers = parent_parser.add_subparsers(dest='command' )
-
-    child_parser = argparse.ArgumentParser(add_help=False)
-    child_parser.add_argument('--gpt', help="Query ChatGPT to get context about this epigram", action="store_true")
-
-    import_parser = subparsers.add_parser('import')
-    import_parser.add_argument('source_type', choices=['fortune'])
-    import_parser.add_argument('path', help='path to the file or directory to import', metavar='PATH')
-
-    console_parser = subparsers.add_parser('console')
-    console_parser.set_defaults(func=console)
-
-    context_parser = subparsers.add_parser('context')
-    context_parser.add_argument('--openai', nargs=1, help="Your OpenAI API Token")
-    # context_parser.add_argument('context_type', choices=['gpt','dalle'])
-
-    save_parser = subparsers.add_parser('save')
-    chat_parser = subparsers.add_parser('chat')
-    return parent_parser.parse_args()
+    if display_bucket:
+        print("\x1b[1m[fim]\x1b[0m bucket: %s" % (epigram.bucket.name))
 
 def main():
-
-    args = setup_argparse()
-
-    with open("fimrc") as f:
-        config = toml.load(f)
-
-    MAIN = 'main'
-
+    fimrc = str(Path.home()) + "/.fimrc"
+    if os.path.exists(fimrc):
+        with open(fimrc) as f:
+            try:
+                config = toml.load(f)
+            except TomlDecodeError as e:
+                log.error("Invalid Configuration File: %s (line %d column %d char %d)"
+                          % (e.msg, e.lineno, e.colno, e.pos))
+                exit(1)
 
     # determine OpenAI token
     try:
@@ -632,42 +715,58 @@ def main():
     except KeyError:
         openai_env = None
 
-    if (args.openai != None):
+    if args.openai is not None:
         openai_api = args.openai[0]
-    elif (openai_env != None):
+    elif openai_env is not None:
         openai_api = openai_env
+    elif os.path.exists(fimrc):
+        try:
+            openai_api = config[MAIN][OPENAI_TOKEN]
+        except KeyError:
+            openai_api = None
     else:
-        openai_api = config[MAIN]['openai_token']
+        openai_api = None
 
-    log.debug("OpenAI Token : " + openai_api)
-
+    if openai_api:
+        log.debug("OpenAI Token : " + openai_api)
 
     # Determine Home directory
-    HOME_DIR = str(Path.home()) + "/.fim/"
-    CONTAINER_PATH = "/var/fim/"
+    home_dir = str(Path.home()) + "/.fim/"
+    container_path = "/var/fim/"
 
-    if (args.db is not None):
+    if args.db is not None:
         path = args.db
-    elif (os.path.exists(CONTAINER_PATH)):
-        path = CONTAINER_PATH
+    elif os.path.exists(container_path):
+        path = container_path
     else:
-        path = HOME_DIR
+        path = home_dir
 
-    log.info(path)
+    log.debug(path)
     fim = FIM(path=path)
+
+    if os.path.exists(fimrc) and BUCKET in config:
+        for bucket in config[BUCKET]:
+            weight = config[BUCKET][bucket]
+            try:
+                fim.update_bucket_weight(bucket, weight)
+                log.debug(f"Updating %s with %d weight" % (bucket, weight))
+            except RuntimeError as e:
+                log.error(f"Unable to %s with %d weight" % (bucket, weight))
+                log.error(e)
+
+    if args.command != "rcfile" or arg.commands != "buckets":
+        print("\x1b[1A\x1b[2K\x1b[G", end="")
 
     if args.command == "import":
         if args.source_type == 'fortune':
             fim.import_fortune(args.path)
         else:
             raise NotImplementedError
-    elif args.command == "console":
-        console(args)
     elif args.command == "context" or args.command == "chat":
         imp = fim.get_last_impression()
         print_epigram(imp.epigram)
-        chatMode = True if args.command == "chat" else False
-        output = context(openai_api, imp, chat=chatMode)
+        chat_mode = True if args.command == "chat" else False
+        output = context(openai_api, imp, chat=chat_mode)
         fim.save_gpt_output(imp, output)
     elif args.command == "save":
         imp = fim.get_last_impression()
@@ -676,11 +775,16 @@ def main():
 
         print_epigram(imp.epigram)
 
-        print(" ********* SAVED *********")
+        print("\x1b[1m[fim]\x1b[0m saved")
 
+    elif args.command == "buckets":
+        fim.display_bucket_info()
+
+    elif args.command == "rcfile":
+        fim.display_bucket_rc(openai_api, config)
     else:
         imp = fim.get_epigram_impression(args.bucket)
-        print_epigram(imp.epigram)
+        print_epigram(imp.epigram, display_bucket=args.display_bucket)
         if args.gpt:
             output = context(openai_api, imp)
             fim.save_gpt_output(imp, output)

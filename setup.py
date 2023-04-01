@@ -5,5 +5,5 @@ setup(
     version='0.1.0',
     packages=['fim',],
     license='APL',
-    long_description=open('README.adoc').read(),
+    long_description=open('README.md').read(),
 )
