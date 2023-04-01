@@ -1,8 +1,8 @@
 fim - fortune improved
 ======================
-![fim](logo.png)
-![kirk](demo/kirk.gif)
+<img src="logo.png"  width="400" height="400">
 
+<img src="demo/kirk.gif" alt="your_alternative_text" loop=infinite>
 
 Its 2023.  It's time for a modern https://en.wikipedia.org/wiki/Fortune_(Unix)[fortune] replacement, now with ChatGPT integration!
 
