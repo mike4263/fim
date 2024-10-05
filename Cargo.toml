@@ -1,0 +1,13 @@
+[package]
+name = "fim-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diesel = { version = "2.2.0", features = ["sqlite"] } # or `mysql` or `sqlite`
+dotenvy = "0.15"
+rand = "0.8"
+
+
+[lib]
+doc = false
