@@ -3,6 +3,8 @@
 #![allow(unused)]
 #![allow(clippy::all)]
 
+use chrono::offset::Local; // Import to get the local time
+use chrono::DateTime;      // For handling DateTime object
 use diesel::prelude::*;
 
 #[derive(Queryable, Selectable)]
@@ -34,12 +36,11 @@ pub struct Epigram {
     pub gpt_completion: Option<String>,
 }
 
-#[derive(Selectable)]
+#[derive(Selectable, Insertable)]
 #[diesel(primary_key(impression_id))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = crate::schema::impression)]
 pub struct Impression {
-    pub impression_id: i32,
     pub bucket_id: Option<i32>,
     pub epigram_uuid: Option<String>,
     pub impression_date: Option<String>,

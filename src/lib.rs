@@ -7,10 +7,13 @@ use std::env;
 use diesel::dsl::sql;
 use diesel::sql_types::Bool;
 use rand::Rng;
-use crate::models::{Bucket, Epigram};
+use crate::models::{Bucket, Epigram, Impression};
 use crate::schema::bucket::dsl::bucket;
 use crate::schema::epigram::dsl::epigram;
 use crate::schema::epigram::last_impression_date;
+
+use chrono::offset::Local; // Import to get the local time
+use chrono::DateTime;      // For handling DateTime object
 
 pub fn establish_connection() -> SqliteConnection {
     dotenv().ok();
@@ -22,14 +25,12 @@ pub fn establish_connection() -> SqliteConnection {
 
 
 pub fn get_epigram() -> (Epigram,Bucket) {
-
     let connection = &mut establish_connection();
 
     let mut rng = rand::thread_rng();
 
     // Generate a random number in a range, for example, between 1 and 100
     let random_number: u32 = rng.gen_range(1..=100);
-
 
     let post = epigram
         .inner_join(bucket)
@@ -43,4 +44,24 @@ pub fn get_epigram() -> (Epigram,Bucket) {
         .expect("Error loading posts");
 
     post
+}
+
+pub fn post_impression(epigram_obj: &crate::models::Epigram)  {
+    let connection = &mut establish_connection();
+
+    let impression_date_dt : DateTime<Local> = Local::now();
+
+    let new_impression = Impression{
+        bucket_id: Option::from(epigram_obj.bucket_id),
+        epigram_uuid: Some(epigram_obj.epigram_uuid.clone()),
+        impression_date: Some(impression_date_dt.to_string()),
+        saved: None,
+        gpt_completion: None };
+
+
+    diesel::insert_into(crate::schema::impression::table)
+        .values(&new_impression)
+        .execute(connection)
+        .expect("Error saving impression");
+
 }
