@@ -1,7 +1,7 @@
 use fim::{get_epigram, post_impression};
 
 use clap::{Parser, Subcommand};
-use log::{debug, info, warn};
+use log::debug;
 use env_logger::{Builder, Target};
 
 #[derive(Parser, Debug)]
@@ -94,7 +94,7 @@ fn main() {
 
 fn get_impression(bucket : Option<&String>) {
 
-    let mut post = get_epigram(bucket);
+    let post = get_epigram(bucket);
 
     let mut results = post.unwrap();
     debug!("{:?}", results.0.epigram_uuid);
