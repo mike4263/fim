@@ -9,6 +9,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    bucket_sort (bucket_id) {
+        bucket_id -> Integer,
+        name -> Nullable<Text>,
+        epigram_count -> Integer,
+        item_weight -> Nullable<Integer>,
+    }
+}
+
+
+diesel::table! {
     epigram (epigram_uuid) {
         epigram_uuid -> Text,
         bucket_id -> Nullable<Integer>,

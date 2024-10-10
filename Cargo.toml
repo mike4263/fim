@@ -21,3 +21,8 @@ assert_cmd = "2.0.14"
 
 [lib]
 doc = false
+
+[profile.release]
+opt-level = "z" # Opt-level "z" reduces size; for max speed, use "s" or numbers 0 to 3
+lto = true      # Link Time Optimization, further reduces size and/or improvers speed
+codegen-units = 1 # Reduces number of codegen units to improve runtime performance at the cost of longer compilation time

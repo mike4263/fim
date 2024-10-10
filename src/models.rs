@@ -17,6 +17,18 @@ pub struct Bucket {
     pub item_weight: Option<i32>,
 }
 
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(primary_key(bucket_id))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[diesel(table_name = crate::schema::bucket_sort)]
+pub struct BucketSort {
+    pub bucket_id: i32,
+    pub name: Option<String>,
+    pub epigram_count: i32,
+    pub item_weight: Option<i32>,
+}
+
+
 #[derive(Queryable, Selectable)]
 #[diesel(primary_key(epigram_uuid))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
