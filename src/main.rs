@@ -170,11 +170,6 @@ async fn context(epigram : &Epigram) -> Result<String, Box<dyn std::error::Error
         function_call: None,
     }];
 
-
-
-    //let mut user_message_content = String::new();
-    //stdin().read_line(&mut user_message_content).unwrap();
-
     messages.push(ChatCompletionMessage {
         role: ChatCompletionMessageRole::User,
         content: Some(epigram.content.clone().unwrap()),
@@ -188,22 +183,11 @@ async fn context(epigram : &Epigram) -> Result<String, Box<dyn std::error::Error
         .unwrap();
     let returned_message = chat_completion.choices.first().unwrap().message.clone();
 
-    /*
-    println!(
-        "{:#?}: {}",
-        &returned_message.role,
-        &returned_message.content.clone().unwrap().trim()
-    );
-     */
-
-    //messages.push(returned_message);
-
     Ok(returned_message.content.clone().unwrap().trim().parse().unwrap())
 }
 
 
 
-// Function to run an async operation with a spinner
 async fn wait_with_spinner<F, R>(async_op: F) -> R
 where
     F: std::future::Future<Output = R>,
