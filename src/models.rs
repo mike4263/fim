@@ -6,6 +6,7 @@
 use chrono::offset::Local; // Import to get the local time
 use chrono::DateTime;      // For handling DateTime object
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 
 #[derive(Queryable, Selectable)]
 #[diesel(primary_key(bucket_id))]
@@ -46,6 +47,7 @@ pub struct Epigram {
     pub action_url: Option<String>,
     pub context_url: Option<String>,
     pub gpt_completion: Option<String>,
+    pub favorite: Option<bool>,
 }
 
 #[derive(Selectable, Insertable)]

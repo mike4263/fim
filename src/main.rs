@@ -1,8 +1,9 @@
-use fim::{get_epigram, post_impression};
+use fim::{get_epigram, get_last_epigram, post_impression, save_last_epigram};
 
 use clap::{Parser, Subcommand};
 use log::debug;
 use env_logger::{Builder, Target};
+use textwrap::{fill, Options};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -53,7 +54,9 @@ enum SourceType {
     Fortune,
 }
 
-fn main() {
+
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
     // todo!("make a command line option for this")
@@ -68,12 +71,25 @@ fn main() {
             println!("Importing {:?} from path: {}", source_type, path);
         }
         Some(Commands::Context { openai  }) => {
-            println!("Generating context with OpenAI Token: {:?}", openai);
-            // Handle context generation here
+            let epigram = get_last_epigram().unwrap();
+
+            let character = "-";
+            let line_width = 80;
+            let line = character.repeat(line_width);
+
+            println!("{}\n\n{}\n", epigram.content.clone().unwrap(), line);
+            let result = wait_with_spinner(context(&epigram)).await;
+            match result {
+                Ok(msg) => {
+
+                    let formatted_chat = fill(&msg, line_width);
+                    println!("{}", formatted_chat);
+                },
+                Err(e) => eprintln!("Error: {}", e),
+            }
         }
         Some(Commands::Favorite {}) => {
-            println!("Saving current state...");
-            // Handle save functionality here
+            favorite();
         }
         Some(Commands::Chat {}) => {
             println!("Starting chat...");
@@ -111,5 +127,131 @@ fn get_impression(bucket : Option<&String>) {
 }
 
 fn favorite() {
-    //let post = get_last_epigram();
+    let result = save_last_epigram();
+
+    match result {
+        Ok(_) => {
+            println!("Saved!")
+        }
+        Err(err) => {
+            eprintln!("Failed to save last epigram! {:?}", err);
+        }
+    }
+}
+
+use std::{
+    env,
+    io::{Write},
+};
+use std::sync::Arc;
+use std::time::Duration;
+use dotenvy::dotenv;
+use indicatif::{ProgressBar, ProgressStyle};
+use openai::{
+    chat::{ChatCompletion, ChatCompletionMessage, ChatCompletionMessageRole},
+    set_key,
+};
+use tokio::sync::Notify;
+use tokio::task;
+use fim::models::Epigram;
+
+async fn context(epigram : &Epigram) -> Result<String, Box<dyn std::error::Error>> {
+    // Make sure you have a file named `.env` with the `OPENAI_KEY` environment variable defined!
+    dotenv().unwrap();
+    set_key(env::var("OPENAI_API_KEY").unwrap());
+    //set_base_url(env::var("OPENAI_BASE_URL").unwrap_or_default());
+
+    let mut messages = vec![ChatCompletionMessage {
+        role: ChatCompletionMessageRole::System,
+        content: Some("This output is from an application that is designed to display pithy, insightful, meaningful epigrams to users.
+    Please explain this epigram, including any information about individuals referenced within, explaining the humor,
+    identifying the origin.  If possible, cite any references of this in popular culture. ".to_string()),
+        name: None,
+        function_call: None,
+    }];
+
+
+
+    //let mut user_message_content = String::new();
+    //stdin().read_line(&mut user_message_content).unwrap();
+
+    messages.push(ChatCompletionMessage {
+        role: ChatCompletionMessageRole::User,
+        content: Some(epigram.content.clone().unwrap()),
+        name: None,
+        function_call: None,
+    });
+
+    let chat_completion = ChatCompletion::builder("gpt-4o", messages.clone())
+        .create()
+        .await
+        .unwrap();
+    let returned_message = chat_completion.choices.first().unwrap().message.clone();
+
+    /*
+    println!(
+        "{:#?}: {}",
+        &returned_message.role,
+        &returned_message.content.clone().unwrap().trim()
+    );
+     */
+
+    //messages.push(returned_message);
+
+    Ok(returned_message.content.clone().unwrap().trim().parse().unwrap())
+}
+
+
+
+// Function to run an async operation with a spinner
+async fn wait_with_spinner<F, R>(async_op: F) -> R
+where
+    F: std::future::Future<Output = R>,
+{
+    let pb = ProgressBar::new_spinner();
+
+    pb.enable_steady_tick(Duration::from_millis(120));
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.blue} {msg}")
+            .unwrap()
+            // For more spinners check out the cli-spinners project:
+            // https://github.com/sindresorhus/cli-spinners/blob/master/spinners.json
+            .tick_strings(&[
+                "▹ ▹ ▹ ▹ ▹",
+                "▸ ▹ ▹ ▹ ▹",
+                "▹ ▸ ▹ ▹ ▹",
+                "▹ ▹ ▸ ▹ ▹",
+                "▹ ▹ ▹ ▸ ▹",
+                "▹ ▹ ▹ ▹ ▸",
+                "▪ ▪ ▪ ▪ ▪",
+            ]),
+    );
+    pb.set_message("Asking ChatGPT...");
+
+    // Shared notification to stop the spinner
+    let notify = Arc::new(Notify::new());
+    let spinner_notify = notify.clone();
+
+    // Spawn a task to handle the spinner's lifecycle
+    let spinner_handle = task::spawn_blocking(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                spinner_notify.notified().await;
+                //pb.finish_with_message("Done!");
+            });
+    });
+
+    // Await the async operation
+    let result = async_op.await;
+
+    // Notify the spinner task to finish
+    notify.notify_one();
+
+    // Wait for the spinner task to complete
+    let _ = spinner_handle.await;
+
+    // Return the result of the async operation
+    result
 }

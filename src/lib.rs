@@ -96,10 +96,6 @@ fn random_weighted_index(weights: &[f64]) -> usize {
 }
 
 
-
-
-
-
 #[derive(Debug)]
 pub struct CustomError(String);
 
@@ -143,7 +139,7 @@ fn test_epigram_and_save() {
     post_impression(&mut results.0);
     let saved_result : Epigram = save_last_epigram().unwrap();
     assert_eq!(results.0.epigram_uuid, saved_result.epigram_uuid);
-    //assert!(saved_result.favorite);
+    assert!(saved_result.favorite)
 }
 
 

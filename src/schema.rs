@@ -32,6 +32,7 @@ diesel::table! {
         action_url -> Nullable<Text>,
         context_url -> Nullable<Text>,
         gpt_completion -> Nullable<Text>,
+        favorite -> Nullable<Bool>,
     }
 }
 

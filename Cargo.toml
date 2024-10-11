@@ -13,6 +13,9 @@ indicatif = "0.17.8"
 log = "0.4.22"
 env_logger = "0.11.5"
 chrono = "0.4.38"
+openai = "1.0.0-alpha.16"
+tokio = "1.40.0"
+textwrap = "0.16.1"
 
 [dev-dependencies]
 predicates = "3.1.2"
