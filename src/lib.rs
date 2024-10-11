@@ -7,7 +7,7 @@ use diesel::sql_query;
 use diesel::sql_types::{Integer, Double};
 use rand::prelude::*;
 
-use log::{debug, info, warn};
+use log::debug;
 
 use dotenvy::dotenv;
 use std::env;
@@ -18,7 +18,7 @@ use crate::models::{Bucket, BucketSort, Epigram, Impression};
 use crate::schema::bucket::dsl::bucket;
 use crate::schema::bucket_sort::dsl::bucket_sort;
 use crate::schema::epigram::dsl::epigram;
-use crate::schema::epigram::last_impression_date;
+use crate::schema::epigram::{favorite, last_impression_date};
 
 use chrono::offset::Local; // Import to get the local time
 use chrono::DateTime;
@@ -135,6 +135,43 @@ pub fn get_epigram(bucket_name : Option<&String>) -> Result<(Epigram, Bucket), C
                                            random_number, err))); // todo!("implement bucket in error output")
 
     post
+}
+
+#[test]
+fn test_epigram_and_save() {
+    let mut results = get_epigram(None).unwrap();
+    post_impression(&mut results.0);
+    let saved_result : Epigram = save_last_epigram().unwrap();
+    assert_eq!(results.0.epigram_uuid, saved_result.epigram_uuid);
+    //assert!(saved_result.favorite);
+}
+
+
+pub fn get_last_epigram() -> Result<Epigram, CustomError> {
+    let connection = &mut establish_connection();
+
+    let last_epigram = epigram
+        .select(epigram::all_columns())
+        .order_by(last_impression_date.desc())
+        .first::<Epigram>(connection)
+        .map_err(|err| CustomError(format!("Error loading posts : {} ", err)));
+
+    last_epigram
+}
+pub fn save_last_epigram() -> Result<Epigram, CustomError> {
+
+    let connection = &mut establish_connection();
+
+    let last_epigram = get_last_epigram();
+
+    if let Ok(ref last_epigram2) = last_epigram {
+        diesel::update(epigram.find(last_epigram2.epigram_uuid.clone()))
+            .set(favorite.eq(true))
+            .execute(connection)
+            .expect("Error updating last impression date");
+    }
+
+    last_epigram
 }
 
 fn lookup_bucket(bucket_name: &str) -> BucketSort {
