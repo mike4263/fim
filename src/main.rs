@@ -1,9 +1,13 @@
-use fim::{get_epigram, get_last_epigram, post_impression, save_last_epigram};
+use fim::{add_epigram, get_epigram, get_last_epigram, post_impression, run_migrations, save_last_epigram};
 
 use clap::{Parser, Subcommand};
 use log::debug;
 use env_logger::{Builder, Target};
-use textwrap::{fill, Options};
+use textwrap::{fill};
+use std::fs;
+use std::io::{self, BufRead};
+use std::path::Path;
+use std::error::Error;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -45,6 +49,9 @@ enum Commands {
     /// Save the previous impression into favorites
     Favorite {},
 
+    /// setup the database with loaded fortunes
+    Setup {},
+
     /// Chat with the model
     Chat {},
 }
@@ -69,6 +76,17 @@ async fn main() {
     match &cli.command {
         Some(Commands::Import { source_type, path }) => {
             println!("Importing {:?} from path: {}", source_type, path);
+
+            match import(Path::new(path)) {
+                Ok(count) => {
+                    println!("Imported {} fortunes", count);
+                }
+                Err(err) => {
+                    eprintln!("Imported error: {}", err);
+                    exit(1);
+                },
+            }
+
         }
         Some(Commands::Context { openai  }) => {
             let epigram = get_last_epigram().unwrap();
@@ -94,6 +112,10 @@ async fn main() {
         Some(Commands::Chat {}) => {
             println!("Starting chat...");
             // Handle chat functionality here
+        }
+        Some(Commands::Setup {}) => {
+            println!("Configuring database");
+            let results = run_migrations();
         }
         None => {
 
@@ -139,10 +161,8 @@ fn favorite() {
     }
 }
 
-use std::{
-    env,
-    io::{Write},
-};
+use std::env;
+use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 use dotenvy::dotenv;
@@ -238,4 +258,50 @@ where
 
     // Return the result of the async operation
     result
+}
+
+
+fn import(directory : &Path) -> Result<i32, Box<dyn std::error::Error>> {
+
+    // Attempt to read the directory
+    let entries = fs::read_dir(directory).map_err(|_| "could not read files")?;
+    let mut count : i32 = 0;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+
+        // Only process files, not directories
+        if path.is_file() {
+            debug!("Processing {:?}", path);
+            if let Ok(file) = fs::File::open(&path) {
+                let reader = io::BufReader::new(file);
+                let mut fortune = String::new();
+
+                for line in reader.lines() {
+                    let line = line?;
+                    if line == "%" {
+                        
+                        if !fortune.is_empty() {
+                            let epigram = fortune.trim();
+                            debug!("Parsed Epigram:\n{}", epigram);
+                            add_epigram(epigram.parse().unwrap()).expect("TODO: panic message");
+                            fortune.clear();
+                            count += 1;
+                        }
+                    } else {
+                        fortune.push_str(&line);
+                        fortune.push('\n');
+                        // Process data line
+                    }
+                }
+            } else {
+                eprintln!("could not read file: {}", path.display());
+            }
+        }
+    }
+
+    Ok(count)
+
 }

@@ -8,7 +8,7 @@ use chrono::DateTime;      // For handling DateTime object
 use diesel::prelude::*;
 use diesel::sql_types::Bool;
 
-#[derive(Queryable, Selectable)]
+#[derive(Queryable, Selectable, Insertable)]
 #[diesel(primary_key(bucket_id))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(table_name = crate::schema::bucket)]

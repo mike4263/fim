@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 diesel = { version = "2.2.0", features = ["sqlite",  "returning_clauses_for_sqlite_3_35"] } # or `mysql` or `sqlite`
+diesel_migrations = "2.2.0"
 dotenvy = "0.15"
 rand = "0.8"
 clap = { version = "4.5.19", features = ["derive"]}
