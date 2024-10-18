@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-diesel = { version = "2.2.0", features = ["sqlite",  "returning_clauses_for_sqlite_3_35"] } # or `mysql` or `sqlite`
+diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] } # or `mysql` or `sqlite`
 diesel_migrations = "2.2.0"
 dotenvy = "0.15"
 rand = "0.8"
-clap = { version = "4.5.19", features = ["derive"]}
+clap = { version = "4.5.19", features = ["derive"] }
 anyhow = "1.0.89"
 indicatif = "0.17.8"
 log = "0.4.22"
@@ -17,11 +17,12 @@ chrono = "0.4.38"
 openai = "1.0.0-alpha.16"
 tokio = "1.40.0"
 textwrap = "0.16.1"
+sqlx = { version = "0.8.2", features = ["sqlite", "runtime-tokio"] }
 
 [dev-dependencies]
 predicates = "3.1.2"
 assert_cmd = "2.0.14"
-
+lazy_static = "1.5.0"
 
 [lib]
 doc = false

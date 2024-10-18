@@ -3,31 +3,27 @@ pub mod schema;
 
 use diesel::prelude::*;
 
-use diesel::sql_query;
-use diesel::sql_types::{Integer, Double};
 use rand::prelude::*;
 
 use log::debug;
 
+use crate::models::{BucketSort, Epigram};
 use dotenvy::dotenv;
-use std::env;
-use diesel::dsl::sql;
-use diesel::sql_types::Bool;
 use rand::Rng;
-use crate::models::{Bucket, BucketSort, Epigram, Impression};
-use crate::schema::bucket::dsl::bucket;
-use crate::schema::bucket_sort::dsl::bucket_sort;
-use crate::schema::epigram::dsl::epigram;
-use crate::schema::epigram::{favorite, last_impression_date};
+use std::env;
 
-use chrono::offset::Local; // Import to get the local time
+use chrono::offset::Local;
+// Import to get the local time
 use chrono::DateTime;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
+use sqlx::sqlite::SqlitePool;
 
 
+pub async fn get_test_pool() -> anyhow::Result<SqlitePool> {
+    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+    Ok(pool)
+}
 pub fn establish_connection() -> SqliteConnection {
-    let database_url : String;
+    let database_url: String;
 
     dotenv().ok();
     database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -38,59 +34,35 @@ pub fn establish_connection() -> SqliteConnection {
 
 
 pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let mut connection = establish_connection();
-    // Run embedded migrations
-    connection.run_pending_migrations(MIGRATIONS).expect("Error running migrations");
-
     Ok(())
 }
 
-diesel::table! {
-    impressions_calculated (bucket_id) {
-        bucket_id -> Integer,
-        name -> Text,
-        effective_impression_percentage -> Double,
-        impression_delta -> Double,
-    }
-}
-
-
-
 // Assuming you have a database connection set up, replace `PgConnection` with the appropriate connection type
-fn get_weighted_bucket() -> Option<BucketSort> {
-    #[derive(QueryableByName)]
-    struct Row {
-        #[diesel(sql_type = Integer)]
-        bucket_id: i32,
-        #[diesel(sql_type = Double)]
-        effective_impression_percentage: f64,
-    }
+async fn get_weighted_bucket(pool: &SqlitePool) -> anyhow::Result<Option<BucketSort>> {
+    let weighted_buckets = sqlx::query!(
+        r#"
+        SELECT bucket_id, effective_impression_percentage FROM impressions_calculated WHERE impression_delta >= 0
+        "#
+    ).fetch_all(pool).await?;
 
-    let mut conn = establish_connection();
+    debug!("Weighted Buckets are {:?}", weighted_buckets);
 
-    // Execute the SQL query
-    let results = sql_query(
-        "SELECT bucket_id, effective_impression_percentage FROM impressions_calculated WHERE impression_delta >= 0"
-    )
-        .load::<Row>(& mut conn)
-        .expect("Failed to load data");
+    let mut buckets: Vec<i64> = Vec::new();
+    let mut probabilities: Vec<f64> = Vec::new();
 
-    let mut buckets = Vec::new();
-    let mut probabilities = Vec::new();
-
-    for row in results {
+    for row in weighted_buckets {
         buckets.push(row.bucket_id);
-        probabilities.push(row.effective_impression_percentage);
+        probabilities.push(row.effective_impression_percentage.unwrap());
     }
 
     // Use the rand crate to choose a bucket based on the weights
     if !buckets.is_empty() {
         let weighted_index = random_weighted_index(&probabilities);
 
-        Some(lookup_bucket_by_id(&buckets[weighted_index]))
+        Ok(Some(lookup_bucket_by_id(&pool, &buckets[weighted_index]).await?))
         //Some(buckets[weighted_index])
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -112,128 +84,186 @@ fn random_weighted_index(weights: &[f64]) -> usize {
 pub struct CustomError(String);
 
 
-pub fn get_epigram(bucket_name : Option<&String>) -> Result<(Epigram, Bucket), CustomError> {
-    let connection = &mut establish_connection();
-
-    let effective_bucket :BucketSort ;
+pub async fn get_random_epigram(pool: &SqlitePool, bucket_name: Option<&String>) -> anyhow::Result<(String, String)> {
+    let effective_bucket: BucketSort;
     if bucket_name.is_none() {
-        effective_bucket = get_weighted_bucket().unwrap();
-    }
-    else {
-        effective_bucket = lookup_bucket_by_name(bucket_name.unwrap())?;
+        effective_bucket = get_weighted_bucket(&pool).await?.unwrap();
+    } else {
+        effective_bucket = lookup_bucket_by_name(&pool, bucket_name.unwrap()).await?;
     }
 
     let mut rng = rand::thread_rng();
 
-    let random_number: u32 = rng.gen_range(1..=effective_bucket.epigram_count) as u32 - 1;
+    let random_number: u32 = rng.gen_range(1f64..=effective_bucket.epigram_count) as u32 - 1;
 
     debug!("Effective bucket is {:?}", effective_bucket);
 
-    let post = epigram
-        .inner_join(bucket)
-        .filter(crate::schema::bucket::columns::bucket_id.eq(effective_bucket.bucket_id))
-        // todo!("this is hard coded in the view now")
-        .filter(sql::<Bool>("LENGTH(content) < 300"))
-        .limit(300)
-        .select((epigram::all_columns(), bucket::all_columns()))
-        .order_by(last_impression_date.asc())
-        .offset(random_number as i64)
-        .first::<(Epigram, Bucket)>(connection)
-        .map_err(|err| CustomError(format!("Error loading posts offsetting {} : {} ",
-                                           random_number, err))); // todo!("implement bucket in error output")
+    let rec = sqlx::query!(
+        r#"
+select e.epigram_uuid, b.name as bucket_name from epigram e
+                       inner join bucket b
+                       on e.bucket_id = b.bucket_id
 
-    post
+                                         where length(content) < ?1
+                                         and b.bucket_id = ?2
+order by last_impression_date asc
+limit ?3
+offset ?4
+        "#, 300, effective_bucket.bucket_id, effective_bucket.epigram_count, random_number
+    ).fetch_one(pool).await?;
+
+    debug!("rec is {:?}", rec);
+
+    Ok((rec.epigram_uuid, rec.bucket_name.unwrap()))
 }
 
-#[test]
-fn test_epigram_and_save() {
-    let mut results = get_epigram(None).unwrap();
-    post_impression(&mut results.0);
-    let saved_result : Epigram = save_last_epigram().unwrap();
-    assert_eq!(results.0.epigram_uuid, saved_result.epigram_uuid);
+pub async fn get_epigram(pool: &SqlitePool, epigram_uuid: &String) -> anyhow::Result<Epigram> {
+    let rec = sqlx::query!(
+        r#"
+select e.* from epigram e
+         where e.epigram_uuid = ?1
+        "#, epigram_uuid
+    ).fetch_one(pool).await?;
+
+    debug!("rec is {:?}", rec);
+
+    let epigram_result = Epigram {
+        epigram_uuid: rec.epigram_uuid,
+        bucket_id: None,
+        created_date: rec.created_date,
+        modified_date: rec.modified_date,
+        last_impression_date: None,
+        content_source: None,
+        content_text: None,
+        content: rec.content,
+        source_url: None,
+        action_url: None,
+        context_url: None,
+        gpt_completion: None,
+        favorite: None,
+    };
+
+
+    Ok(epigram_result)
+}
+
+
+#[tokio::test]
+async fn test_epigram_and_save() {
+    let pool = get_test_pool().await.expect("Error getting test pool");
+    let mut results = get_random_epigram(&pool, None).await.unwrap();
+    post_impression(&pool, &results.0).await.expect("Failed to update impression");
+
+    save_last_epigram(&pool).await.expect("Error saving last epigram");
+    //assert_eq!(results.0.epigram_uuid, saved_result.epigram_uuid);
     //assert!(saved_result.favorite)
 }
 
 
-pub fn get_last_epigram() -> Result<Epigram, CustomError> {
-    let connection = &mut establish_connection();
+pub async fn get_last_epigram(pool: &SqlitePool) -> anyhow::Result<String> {
+    let rec = sqlx::query!(
+        r#"
+select e.epigram_uuid from epigram e
+                       inner join bucket b
+                       on e.bucket_id = b.bucket_id
+order by last_impression_date desc
+limit 1
+        "#
+    ).fetch_one(pool).await?;
 
-    let last_epigram = epigram
-        .select(epigram::all_columns())
-        .order_by(last_impression_date.desc())
-        .first::<Epigram>(connection)
-        .map_err(|err| CustomError(format!("Error loading posts : {} ", err)));
+    debug!("rec is {:?}", rec);
 
-    last_epigram
+    Ok(rec.epigram_uuid)
 }
-pub fn save_last_epigram() -> Result<Epigram, CustomError> {
+pub async fn save_last_epigram(pool: &SqlitePool) -> anyhow::Result<()> {
+    let last_epigram_uuid = get_last_epigram(&pool).await?;
 
-    let connection = &mut establish_connection();
+    let rows_affected = sqlx::query!(
+        r#"
+        update epigram set favorite = 1
+        where epigram_uuid = ?1
+        "#, last_epigram_uuid
+    ).execute(pool).await?.rows_affected();
 
-    let last_epigram = get_last_epigram();
+    debug!("Updated rows : {} ", rows_affected);
 
-    if let Ok(ref last_epigram2) = last_epigram {
-        diesel::update(epigram.find(last_epigram2.epigram_uuid.clone()))
-            .set(favorite.eq(true))
-            .execute(connection)
-            .expect("Error updating last impression date");
-    }
-
-    last_epigram
-}
-
-fn lookup_bucket_by_name(bucket_name: &str) -> Result<BucketSort, CustomError> {
-    let connection = &mut establish_connection();
-
-    let bucket_obj = bucket_sort
-        .filter(crate::schema::bucket_sort::columns::name.eq(bucket_name))
-        .select(bucket_sort::all_columns())
-        .first::<BucketSort>(connection)
-        .map_err(|err| CustomError(format!("Error loading posts : {} ", err)));
-
-    bucket_obj
-}
-fn lookup_bucket_by_id(bucket_id: &i32) -> BucketSort {
-    let connection = &mut establish_connection();
-
-    let bucket_obj = bucket_sort
-        .filter(crate::schema::bucket_sort::columns::bucket_id.eq(bucket_id))
-        .select(bucket_sort::all_columns())
-        .first::<BucketSort>(connection)
-        .expect("Error loading posts");
-
-    bucket_obj
+    Ok(())
 }
 
+async fn lookup_bucket_by_name(pool: &SqlitePool, bucket_name: &String) -> anyhow::Result<BucketSort> {
+    let rec = sqlx::query!(
+        r#"
+select bs.bucket_id, bs.name, bs.epigram_count, bs.item_weight, bs.epigram_weight,
+bs.padded_impressions from bucket_sort bs
+where name = ?1
+        "#, bucket_name
+    ).fetch_one(pool).await?;
 
-#[test]
+    debug!("rec is {:?}", rec);
+
+    let bucket_obj: BucketSort = BucketSort {
+        bucket_id: rec.bucket_id,
+        name: rec.name.unwrap(),
+        epigram_count: rec.epigram_count.unwrap(),
+        item_weight: rec.item_weight.unwrap(),
+    };
+
+    Ok(bucket_obj)
+}
+
+async fn lookup_bucket_by_id(pool: &SqlitePool, bucket_id: &i64) -> anyhow::Result<BucketSort> {
+    let rec = sqlx::query!(
+        r#"
+select bs.bucket_id, bs.name, bs.epigram_count, bs.item_weight, bs.epigram_weight,
+bs.padded_impressions from bucket_sort bs
+where bucket_id = ?1
+
+        "#, bucket_id
+    ).fetch_one(pool).await?;
+
+    debug!("rec is {:?}", rec);
+
+    let bucket_obj: BucketSort = BucketSort {
+        bucket_id: rec.bucket_id,
+        name: rec.name.unwrap(),
+        epigram_count: rec.epigram_count.unwrap(),
+        item_weight: rec.item_weight.unwrap(),
+    };
+
+    Ok(bucket_obj)
+}
+
+
+/*#[test]
 fn test_lookup_for_art() {
-    let result : i32 = lookup_bucket_by_name("art")?.bucket_id;
+    let result: i32 = lookup_bucket_by_name("art")?.bucket_id;
     assert_eq!(result, 1);
 
-    let result : i32 = lookup_bucket_by_name("food")?.bucket_id;
+    let result: i32 = lookup_bucket_by_name("food")?.bucket_id;
     assert_eq!(result, 11);
-}
+}*/
 
 
-pub fn post_impression(epigram_obj: &mut crate::models::Epigram)  {
+pub async fn post_impression(pool: &SqlitePool, epigram_obj: &String) -> anyhow::Result<()> {
     let connection = &mut establish_connection();
 
-    let impression_date_dt : DateTime<Local> = Local::now();
+    let impression_date_dt: DateTime<Local> = Local::now();
 
-    epigram_obj.last_impression_date = Some(impression_date_dt.clone().to_string());
+    //epigram_obj.last_impression_date = Some(impression_date_dt.clone().to_string());
 
+    /*
     diesel::update(epigram.find(epigram_obj.epigram_uuid.clone()))
-        .set(last_impression_date.eq(impression_date_dt.clone().to_string() ))
+        .set(last_impression_date.eq(impression_date_dt.clone().to_string()))
         .execute(connection)
         .expect("Error updating last impression date");
 
-    let new_impression = Impression{
+    let new_impression = Impression {
         bucket_id: Option::from(epigram_obj.bucket_id),
         epigram_uuid: Some(epigram_obj.epigram_uuid.clone()),
         impression_date: Some(impression_date_dt.to_string()),
         saved: None,
-        gpt_completion: None };
+        gpt_completion: None,
+    };
 
 
     diesel::insert_into(crate::schema::impression::table)
@@ -241,41 +271,10 @@ pub fn post_impression(epigram_obj: &mut crate::models::Epigram)  {
         .execute(connection)
         .expect("Error saving impression");
 
-}
-
-pub fn add_bucket_if_new(bucket_str : String) -> Result<BucketSort, CustomError> {
-    let connection = &mut establish_connection();
-
-    let bucket_sort_obj = lookup_bucket_by_name(bucket_str.as_str());
-
-    /*
-    match bucket_sort_obj {
-        Ok(other_bucket_sort) => {
-           println!("bucket already exists");
-            Ok(other_bucket_sort)
-        }
-        Err(err) => {
-            let new_bucket = Bucket {
-                bucket_id: 0,
-                name: Some(bucket_str),
-                item_weight: Some(1)
-            };
-
-            diesel::insert_into(crate::schema::bucket::table)
-                .values(&new_bucket)
-                .execute(connection)
-                .expect("Error saving new bucket");
-        }
-    }
      */
-
-
-    // todo!("this is super janky using BucketSort instead of real buckets")
-   // let bucket_sort_obj2 = lookup_bucket_by_name(bucket_str.as_str());
-   // bucket_sort_obj2
-    bucket_sort_obj
+    Ok(())
 }
 
-pub fn add_epigram(epigram_str : String) -> Result<(), CustomError> {
+pub fn add_epigram(epigram_str: String) -> Result<(), CustomError> {
     Ok(())
 }

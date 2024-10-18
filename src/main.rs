@@ -1,13 +1,16 @@
-use fim::{add_epigram, get_epigram, get_last_epigram, post_impression, run_migrations, save_last_epigram};
+use fim::{add_epigram, get_epigram, get_last_epigram, get_random_epigram, post_impression, run_migrations, save_last_epigram};
 
 use clap::{Parser, Subcommand};
-use log::debug;
 use env_logger::{Builder, Target};
-use textwrap::{fill};
+use log::debug;
+use std::error::Error;
 use std::fs;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::error::Error;
+use textwrap::fill;
+
+use sqlx::sqlite::SqlitePool;
+
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -63,8 +66,10 @@ enum SourceType {
 
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
 
     // todo!("make a command line option for this")
     Builder::new()
@@ -84,30 +89,32 @@ async fn main() {
                 Err(err) => {
                     eprintln!("Imported error: {}", err);
                     exit(1);
-                },
+                }
             }
-
         }
-        Some(Commands::Context { openai  }) => {
-            let epigram = get_last_epigram().unwrap();
+        Some(Commands::Context { openai }) => {
+            let epigram_uuid = get_last_epigram(&pool).await?;
 
             let character = "-";
             let line_width = 80;
             let line = character.repeat(line_width);
 
+
+            let (epigram) = get_epigram(&pool, &epigram_uuid).await?;
+            display_epigram(&epigram, None);
+            //let epigram = get_epigram(&pool, &epigram_uuid).await?;
             println!("{}\n\n{}\n", epigram.content.clone().unwrap(), line);
             let result = wait_with_spinner(context(&epigram)).await;
             match result {
                 Ok(msg) => {
-
                     let formatted_chat = fill(&msg, line_width);
                     println!("{}", formatted_chat);
-                },
+                }
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
         Some(Commands::Favorite {}) => {
-            favorite();
+            favorite(&pool).await;
         }
         Some(Commands::Chat {}) => {
             println!("Starting chat...");
@@ -118,38 +125,43 @@ async fn main() {
             let results = run_migrations();
         }
         None => {
-
             if let Some(bucket) = &cli.bucket {
                 debug!("Using bucket name: {}", bucket);
-                get_impression(Some(bucket));
-            }
-            else {
-                get_impression(None);
+                get_impression(&pool, Some(bucket)).await?;
+            } else {
+                get_impression(&pool, None).await?;
             }
         }
     }
+
+    Ok(())
 }
 
-fn get_impression(bucket : Option<&String>) {
+async fn get_impression(pool: &SqlitePool, bucket: Option<&String>) -> anyhow::Result<()> {
+    let (epigram_uuid, bucket_name) = get_random_epigram(&pool, bucket).await.unwrap();
 
-    let post = get_epigram(bucket);
+    let (epigram) = get_epigram(&pool, &epigram_uuid).await?;
+    display_epigram(&epigram, Some(bucket_name));
 
-    let mut results = post.unwrap();
-    debug!("{:?}", results.0.epigram_uuid);
+    post_impression(pool, &epigram_uuid).await.expect("Error posting impression");
+
+    Ok(())
+}
+
+fn display_epigram(epigram: &Epigram, bucket_name: Option<String>) {
+    debug!("{:?}", epigram.epigram_uuid);
     let output = format!(
         "\n{}\nBucket: {}\n",
-        results.0.content.as_deref().unwrap_or("N/A"),
-        results.1.name.as_deref().unwrap_or("No Bucket")
+        epigram.content.as_deref().unwrap_or("N/A"),
+        &bucket_name.clone().unwrap_or_default()
     );
 
     // Single flush to stdout
     println!("{}", output);
-
-    post_impression(&mut results.0);
 }
 
-fn favorite() {
-    let result = save_last_epigram();
+async fn favorite(pool: &SqlitePool) {
+    let result = save_last_epigram(&pool).await;
 
     match result {
         Ok(_) => {
@@ -161,21 +173,21 @@ fn favorite() {
     }
 }
 
-use std::env;
-use std::process::exit;
-use std::sync::Arc;
-use std::time::Duration;
 use dotenvy::dotenv;
+use fim::models::Epigram;
 use indicatif::{ProgressBar, ProgressStyle};
 use openai::{
     chat::{ChatCompletion, ChatCompletionMessage, ChatCompletionMessageRole},
     set_key,
 };
+use std::env;
+use std::process::exit;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::task;
-use fim::models::Epigram;
 
-async fn context(epigram : &Epigram) -> Result<String, Box<dyn std::error::Error>> {
+async fn context(epigram: &Epigram) -> Result<String, Box<dyn std::error::Error>> {
     // Make sure you have a file named `.env` with the `OPENAI_KEY` environment variable defined!
     dotenv().unwrap();
     set_key(env::var("OPENAI_API_KEY").unwrap());
@@ -207,10 +219,9 @@ async fn context(epigram : &Epigram) -> Result<String, Box<dyn std::error::Error
 }
 
 
-
 async fn wait_with_spinner<F, R>(async_op: F) -> R
 where
-    F: std::future::Future<Output = R>,
+    F: std::future::Future<Output=R>,
 {
     let pb = ProgressBar::new_spinner();
 
@@ -261,11 +272,11 @@ where
 }
 
 
-fn import(directory : &Path) -> Result<i32, Box<dyn std::error::Error>> {
+fn import(directory: &Path) -> Result<i32, Box<dyn std::error::Error>> {
 
     // Attempt to read the directory
     let entries = fs::read_dir(directory).map_err(|_| "could not read files")?;
-    let mut count : i32 = 0;
+    let mut count: i32 = 0;
 
     for entry in entries {
         let entry = entry?;
@@ -282,7 +293,6 @@ fn import(directory : &Path) -> Result<i32, Box<dyn std::error::Error>> {
                 for line in reader.lines() {
                     let line = line?;
                     if line == "%" {
-                        
                         if !fortune.is_empty() {
                             let epigram = fortune.trim();
                             debug!("Parsed Epigram:\n{}", epigram);
@@ -303,5 +313,4 @@ fn import(directory : &Path) -> Result<i32, Box<dyn std::error::Error>> {
     }
 
     Ok(count)
-
 }

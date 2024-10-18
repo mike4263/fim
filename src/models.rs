@@ -3,10 +3,8 @@
 #![allow(unused)]
 #![allow(clippy::all)]
 
-use chrono::offset::Local; // Import to get the local time
-use chrono::DateTime;      // For handling DateTime object
+// For handling DateTime object
 use diesel::prelude::*;
-use diesel::sql_types::Bool;
 
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(primary_key(bucket_id))]
@@ -17,16 +15,12 @@ pub struct Bucket {
     pub name: Option<String>,
     pub item_weight: Option<i32>,
 }
-
-#[derive(Queryable, Selectable, Debug)]
-#[diesel(primary_key(bucket_id))]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(table_name = crate::schema::bucket_sort)]
+#[derive(Debug)]
 pub struct BucketSort {
-    pub bucket_id: i32,
-    pub name: Option<String>,
-    pub epigram_count: i32,
-    pub item_weight: Option<i32>,
+    pub bucket_id: i64,
+    pub name: String,
+    pub epigram_count: f64,
+    pub item_weight: i64,
 }
 
 
