@@ -1,7 +1,4 @@
 pub mod models;
-pub mod schema;
-
-use diesel::prelude::*;
 
 use rand::prelude::*;
 
@@ -13,27 +10,20 @@ use dotenvy::dotenv;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use sqlx::sqlite::SqlitePool;
-use sqlx::Error;
+use sqlx::{Error, QueryBuilder, Sqlite};
 use std::env;
 use uuid::Uuid;
 
 pub async fn get_test_pool() -> anyhow::Result<SqlitePool> {
+    //let database_url = dotenv!("DATABASE_URL");
     let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+    //let pool = SqlitePool::connect(database_url).await?;
     Ok(pool)
 }
-pub fn establish_connection() -> SqliteConnection {
-    let database_url: String;
-
-    dotenv().ok();
-    database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    SqliteConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
-}
-
-
-pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    Ok(())
+pub async fn run_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
+    let result = sqlx::migrate!("db/migrations")
+        .run(pool).await?;
+    Ok(result)
 }
 
 // Assuming you have a database connection set up, replace `PgConnection` with the appropriate connection type
@@ -204,7 +194,7 @@ where name = ?1
             Ok(BucketSort {
                 bucket_id: rec.bucket_id,
                 name: rec.name.unwrap(),
-                epigram_count: rec.epigram_count.unwrap(),
+                epigram_count: rec.epigram_count,
                 item_weight: rec.item_weight.unwrap(),
             })
         }
@@ -232,7 +222,7 @@ where bucket_id = ?1
     let bucket_obj: BucketSort = BucketSort {
         bucket_id: rec.bucket_id,
         name: rec.name.unwrap(),
-        epigram_count: rec.epigram_count.unwrap(),
+        epigram_count: rec.epigram_count,
         item_weight: rec.item_weight.unwrap(),
     };
 
@@ -303,7 +293,6 @@ pub async fn lookup_or_add_bucket_by_name(pool: &SqlitePool, bucket_name: &Strin
     let find_bucket = lookup_bucket_by_name(&pool, &bucket_name).await;
     let mut bucket_id = find_bucket.unwrap_or_else(|e| {
         if let Some(sqlx::Error::RowNotFound) = e.downcast_ref::<sqlx::Error>() {
-            eprintln!("does that actually work {}", e);
             return BucketSort {
                 bucket_id: 0,
                 name: "".to_string(),
@@ -331,21 +320,52 @@ async fn test_add_bucket() {
 
     let bucket_id = lookup_or_add_bucket_by_name(&pool, &bucket_name).await.unwrap();
 
-    add_epigram(&pool, "Hello world!".parse().unwrap(), bucket_id)
+    let mut epigrams: Vec<EpigramInsert> = Vec::new();
+    epigrams.push(EpigramInsert {
+        epigram_uuid: Uuid::new_v4().to_string(),
+        bucket_id: bucket_id,
+        created_date: Local::now().to_string(),
+        modified_date: Local::now().to_string(),
+        content: String::from("hello world"),
+    });
+
+    add_epigrams(&pool, &epigrams)
         .await.unwrap();
 }
 
-pub async fn add_epigram(pool: &SqlitePool, epigram_str: String, bucket_id: i64) -> anyhow::Result<String> {
-    let uuid = Uuid::new_v4();
-    let created_date: String = Local::now().to_string();
-    let modified_date: String = Local::now().to_string();
+pub struct EpigramInsert {
+    pub epigram_uuid: String,
+    pub bucket_id: i64,
+    pub created_date: String,
+    pub modified_date: String,
+    pub content: String,
+}
 
-    sqlx::query!(
-        r#"
-        insert into epigram (epigram_uuid, bucket_id, created_date, modified_date, content)
-values (?1, ?2, ?3, ?4, ?5)
-        "#, uuid, bucket_id, created_date, modified_date, epigram_str
-    ).execute(pool).await?;
-    debug!("Inserted epigram id : {} ", uuid);
-    Ok(uuid.to_string())
+pub async fn add_epigrams(pool: &SqlitePool, epigrams: Vec<EpigramInsert>) -> anyhow::Result<()> {
+    //let uuid = Uuid::new_v4();
+    //let created_date: String = Local::now().to_string();
+    //let modified_date: String = Local::now().to_string();
+
+    const BATCH_SIZE: usize = 1000;
+
+    for epigram_chunk in epigrams.chunks(BATCH_SIZE) {
+        let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "insert into epigram (epigram_uuid, bucket_id, created_date, modified_date, content) "
+        );
+
+        query_builder.push_values(epigram_chunk.iter(), |mut b, epigram| {
+            b.push_bind(&epigram.epigram_uuid)
+                .push_bind(epigram.bucket_id)
+                .push_bind(&epigram.created_date)
+                .push_bind(&epigram.modified_date)
+                .push_bind(&epigram.content);
+        });
+
+
+        let mut query = query_builder.build();
+
+        query.execute(pool).await?;
+    }
+
+    Ok(())
 }

@@ -1,12 +1,12 @@
-use fim::{add_epigram, get_epigram, get_last_epigram, get_random_epigram, lookup_or_add_bucket_by_name, post_impression, run_migrations, save_last_epigram};
+use fim::{add_epigrams, get_epigram, get_last_epigram, get_random_epigram, lookup_or_add_bucket_by_name, post_impression, run_migrations, save_last_epigram, EpigramInsert};
 
 use clap::{Parser, Subcommand};
 use env_logger::{Builder, Target};
 use log::debug;
 use std::path::Path;
 use textwrap::fill;
-use tokio::fs;
 use tokio::io;
+use tokio::{fs, stream};
 
 use sqlx::sqlite::SqlitePool;
 
@@ -68,7 +68,13 @@ enum SourceType {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+    let mut fim_db = &env::var("FIM_DB_URL")?.to_string();
+    OpenOptions::new().create(true).write(true).open(fim_db).await?;
+
+    let fim_db_prefix = "sqlite://";
+    let results = format!("{}{}", fim_db_prefix, fim_db);
+
+    let pool = SqlitePool::connect(&results).await?;
 
     // todo!("make a command line option for this")
     Builder::new()
@@ -79,9 +85,13 @@ async fn main() -> anyhow::Result<()> {
 
     match &cli.command {
         Some(Commands::Import { source_type, path }) => {
+            println!("Configuring database");
+            let results = run_migrations(&pool).await?;
+
             println!("Importing {:?} from path: {}", source_type, path);
 
-            let count = import(&pool, Path::new(path)).await?;
+            //let count = import(&pool, Path::new(path)).await?;
+            let count = wait_with_spinner(import(&pool, Path::new(path)), String::from("Importing fortune...")).await?;
             println!("Imported {} epigrams", count);
         }
         Some(Commands::Context { openai }) => {
@@ -96,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
             display_epigram(&epigram, None);
             //let epigram = get_epigram(&pool, &epigram_uuid).await?;
             println!("{}\n\n{}\n", epigram.content.clone().unwrap(), line);
-            let result = wait_with_spinner(context(&epigram)).await;
+            let result = wait_with_spinner(context(&epigram), String::from("Asking ChatGPT...")).await;
             match result {
                 Ok(msg) => {
                     let formatted_chat = fill(&msg, line_width);
@@ -114,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Setup {}) => {
             println!("Configuring database");
-            let results = run_migrations();
+            let results = run_migrations(&pool).await?;
         }
         None => {
             if let Some(bucket) = &cli.bucket {
@@ -132,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
 async fn get_impression(pool: &SqlitePool, bucket: Option<&String>) -> anyhow::Result<()> {
     // todo!("fix these runtime errors")
     // called `Result::unwrap()` on an `Err` value: error occurred while decoding column 0: invalid utf-8 sequence of 1 bytes from index 1
+    // called `Result::unwrap()` on an `Err` value: no rows returned by a query that expected to return at least one row
     let (epigram_uuid, bucket_name) = get_random_epigram(&pool, bucket).await.unwrap();
 
     let epigram = get_epigram(&pool, &epigram_uuid).await?;
@@ -167,6 +178,7 @@ async fn favorite(pool: &SqlitePool) {
     }
 }
 
+use chrono::Local;
 use dotenvy::dotenv;
 use fim::models::Epigram;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -177,9 +189,11 @@ use openai::{
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::fs::OpenOptions;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::Notify;
 use tokio::task;
+use uuid::Uuid;
 
 async fn context(epigram: &Epigram) -> Result<String, Box<dyn std::error::Error>> {
     // Make sure you have a file named `.env` with the `OPENAI_KEY` environment variable defined!
@@ -213,7 +227,7 @@ async fn context(epigram: &Epigram) -> Result<String, Box<dyn std::error::Error>
 }
 
 
-async fn wait_with_spinner<F, R>(async_op: F) -> R
+async fn wait_with_spinner<F, R>(async_op: F, message: String) -> R
 where
     F: std::future::Future<Output=R>,
 {
@@ -226,16 +240,16 @@ where
             // For more spinners check out the cli-spinners project:
             // https://github.com/sindresorhus/cli-spinners/blob/master/spinners.json
             .tick_strings(&[
-                "▹ ▹ ▹ ▹ ▹",
-                "▸ ▹ ▹ ▹ ▹",
-                "▹ ▸ ▹ ▹ ▹",
-                "▹ ▹ ▸ ▹ ▹",
-                "▹ ▹ ▹ ▸ ▹",
-                "▹ ▹ ▹ ▹ ▸",
-                "▪ ▪ ▪ ▪ ▪",
+                "▹ ▹ ▹ ▹ ▹ ",
+                "▸ ▹ ▹ ▹ ▹ ",
+                "▹ ▸ ▹ ▹ ▹ ",
+                "▹ ▹ ▸ ▹ ▹ ",
+                "▹ ▹ ▹ ▸ ▹ ",
+                "▹ ▹ ▹ ▹ ▸ ",
+                "▪ ▪ ▪ ▪ ▪ ",
             ]),
     );
-    pb.set_message("Asking ChatGPT...");
+    pb.set_message(message);
 
     // Shared notification to stop the spinner
     let notify = Arc::new(Notify::new());
@@ -265,6 +279,8 @@ where
     result
 }
 
+use futures::stream::{FuturesUnordered, StreamExt};
+
 
 async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
 
@@ -272,7 +288,10 @@ async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
     let mut entries = fs::read_dir(directory).await?; //.await.map_err(|_| "could not read files");
     let mut count: i32 = 0;
 
+    let tasks = FuturesUnordered::new();
+
     while let Some(entry) = entries.next_entry().await? {
+        let mut epigrams: Vec<EpigramInsert> = Vec::new();
         //let entry = entry;
         let path = entry.path();
 
@@ -298,7 +317,14 @@ async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
                         if !fortune.is_empty() {
                             let epigram = fortune.trim();
                             debug!("Parsed Epigram:\n{}", epigram);
-                            add_epigram(&pool, epigram.parse().unwrap(), bucket_id).await?;
+                            epigrams.push(EpigramInsert {
+                                epigram_uuid: Uuid::new_v4().to_string(),
+                                bucket_id: bucket_id,
+                                created_date: Local::now().to_string(),
+                                modified_date: Local::now().to_string(),
+                                content: epigram.parse()?,
+                            });
+                            //add_epigram(&pool, epigram.parse().unwrap(), bucket_id).await?;
                             fortune.clear();
                             line.clear();
                             count += 1;
@@ -314,7 +340,13 @@ async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
                 eprintln!("could not read file: {}", path.display());
             }
         }
+        tasks.push(add_epigrams(&pool, epigrams));
     }
+
+
+    tasks.for_each(|result| async move {
+        debug!("Completed task!");
+    }).await;
 
     Ok(count)
 }
