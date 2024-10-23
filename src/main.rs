@@ -1,13 +1,12 @@
-use fim::{add_epigram, get_epigram, get_last_epigram, get_random_epigram, post_impression, run_migrations, save_last_epigram};
+use fim::{add_epigram, get_epigram, get_last_epigram, get_random_epigram, lookup_or_add_bucket_by_name, post_impression, run_migrations, save_last_epigram};
 
 use clap::{Parser, Subcommand};
 use env_logger::{Builder, Target};
 use log::debug;
-use std::error::Error;
-use std::fs;
-use std::io::{self, BufRead};
 use std::path::Path;
 use textwrap::fill;
+use tokio::fs;
+use tokio::io;
 
 use sqlx::sqlite::SqlitePool;
 
@@ -82,15 +81,8 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Import { source_type, path }) => {
             println!("Importing {:?} from path: {}", source_type, path);
 
-            match import(Path::new(path)) {
-                Ok(count) => {
-                    println!("Imported {} fortunes", count);
-                }
-                Err(err) => {
-                    eprintln!("Imported error: {}", err);
-                    exit(1);
-                }
-            }
+            let count = import(&pool, Path::new(path)).await?;
+            println!("Imported {} epigrams", count);
         }
         Some(Commands::Context { openai }) => {
             let epigram_uuid = get_last_epigram(&pool).await?;
@@ -100,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             let line = character.repeat(line_width);
 
 
-            let (epigram) = get_epigram(&pool, &epigram_uuid).await?;
+            let epigram = get_epigram(&pool, &epigram_uuid).await?;
             display_epigram(&epigram, None);
             //let epigram = get_epigram(&pool, &epigram_uuid).await?;
             println!("{}\n\n{}\n", epigram.content.clone().unwrap(), line);
@@ -138,12 +130,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn get_impression(pool: &SqlitePool, bucket: Option<&String>) -> anyhow::Result<()> {
+    // todo!("fix these runtime errors")
+    // called `Result::unwrap()` on an `Err` value: error occurred while decoding column 0: invalid utf-8 sequence of 1 bytes from index 1
     let (epigram_uuid, bucket_name) = get_random_epigram(&pool, bucket).await.unwrap();
 
-    let (epigram) = get_epigram(&pool, &epigram_uuid).await?;
+    let epigram = get_epigram(&pool, &epigram_uuid).await?;
     display_epigram(&epigram, Some(bucket_name));
 
-    post_impression(pool, &epigram_uuid).await.expect("Error posting impression");
+    post_impression(pool, &epigram_uuid, epigram.bucket_id.unwrap()).await.expect("Error posting impression");
 
     Ok(())
 }
@@ -181,9 +175,9 @@ use openai::{
     set_key,
 };
 use std::env;
-use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::Notify;
 use tokio::task;
 
@@ -272,37 +266,47 @@ where
 }
 
 
-fn import(directory: &Path) -> Result<i32, Box<dyn std::error::Error>> {
+async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
 
     // Attempt to read the directory
-    let entries = fs::read_dir(directory).map_err(|_| "could not read files")?;
+    let mut entries = fs::read_dir(directory).await?; //.await.map_err(|_| "could not read files");
     let mut count: i32 = 0;
 
-    for entry in entries {
-        let entry = entry?;
+    while let Some(entry) = entries.next_entry().await? {
+        //let entry = entry;
         let path = entry.path();
-
 
         // Only process files, not directories
         if path.is_file() {
+            let bucket_name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let bucket_id = lookup_or_add_bucket_by_name(&pool, &bucket_name).await.unwrap();
+
             debug!("Processing {:?}", path);
-            if let Ok(file) = fs::File::open(&path) {
-                let reader = io::BufReader::new(file);
+            if let Ok(file) = fs::File::open(&path).await {
+                let mut reader = io::BufReader::new(file);
+                let mut line = String::new();
                 let mut fortune = String::new();
 
-                for line in reader.lines() {
-                    let line = line?;
-                    if line == "%" {
+                loop {
+                    let num_bytes = reader.read_line(&mut line).await?;
+                    if num_bytes == 0 {
+                        break;
+                    }
+                    //debug!("Reading from file - bytes {} - line {}", num_bytes, line);
+
+                    if line == "%\n" {
                         if !fortune.is_empty() {
                             let epigram = fortune.trim();
                             debug!("Parsed Epigram:\n{}", epigram);
-                            add_epigram(epigram.parse().unwrap()).expect("TODO: panic message");
+                            add_epigram(&pool, epigram.parse().unwrap(), bucket_id).await?;
                             fortune.clear();
+                            line.clear();
                             count += 1;
                         }
                     } else {
                         fortune.push_str(&line);
-                        fortune.push('\n');
+                        line.clear();
+                        //fortune.push('\n');
                         // Process data line
                     }
                 }

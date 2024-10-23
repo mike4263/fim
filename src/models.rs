@@ -3,13 +3,6 @@
 #![allow(unused)]
 #![allow(clippy::all)]
 
-// For handling DateTime object
-use diesel::prelude::*;
-
-#[derive(Queryable, Selectable, Insertable)]
-#[diesel(primary_key(bucket_id))]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(table_name = crate::schema::bucket)]
 pub struct Bucket {
     pub bucket_id: i32,
     pub name: Option<String>,
@@ -24,13 +17,9 @@ pub struct BucketSort {
 }
 
 
-#[derive(Queryable, Selectable)]
-#[diesel(primary_key(epigram_uuid))]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(table_name = crate::schema::epigram)]
 pub struct Epigram {
     pub epigram_uuid: String,
-    pub bucket_id: Option<i32>,
+    pub bucket_id: Option<i64>,
     pub created_date: Option<String>,
     pub modified_date: Option<String>,
     pub last_impression_date: Option<String>,
@@ -44,10 +33,6 @@ pub struct Epigram {
     pub favorite: Option<bool>,
 }
 
-#[derive(Selectable, Insertable)]
-#[diesel(primary_key(impression_id))]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(table_name = crate::schema::impression)]
 pub struct Impression {
     pub bucket_id: Option<i32>,
     pub epigram_uuid: Option<String>,
