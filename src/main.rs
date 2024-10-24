@@ -1,9 +1,10 @@
 use fim::{add_epigrams, get_epigram, get_last_epigram, get_random_epigram, lookup_or_add_bucket_by_name, post_impression, run_migrations, save_last_epigram, EpigramInsert};
+use std::collections::VecDeque;
 
 use clap::{Parser, Subcommand};
 use env_logger::{Builder, Target};
 use log::debug;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use textwrap::fill;
 use tokio::io;
 use tokio::{fs, stream};
@@ -68,11 +69,13 @@ enum SourceType {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let mut fim_db = &env::var("FIM_DB_URL")?.to_string();
+    let fim_db = &env::var("FIM_DB_URL")?.to_string();
     OpenOptions::new().create(true).write(true).open(fim_db).await?;
 
     let fim_db_prefix = "sqlite://";
     let results = format!("{}{}", fim_db_prefix, fim_db);
+
+    println!("Opening DB {}", results);
 
     let pool = SqlitePool::connect(&results).await?;
 
@@ -86,12 +89,13 @@ async fn main() -> anyhow::Result<()> {
     match &cli.command {
         Some(Commands::Import { source_type, path }) => {
             println!("Configuring database");
-            let results = run_migrations(&pool).await?;
+            let _ = run_migrations(&pool).await?;
 
             println!("Importing {:?} from path: {}", source_type, path);
 
             //let count = import(&pool, Path::new(path)).await?;
-            let count = wait_with_spinner(import(&pool, Path::new(path)), String::from("Importing fortune...")).await?;
+            let pool_clone = Arc::new(pool);
+            let count = wait_with_spinner(import(pool_clone.clone(), Path::new(path)), String::from("Importing fortune...")).await?;
             println!("Imported {} epigrams", count);
         }
         Some(Commands::Context { openai }) => {
@@ -191,7 +195,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncBufReadExt;
-use tokio::sync::Notify;
+use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::task;
 use uuid::Uuid;
 
@@ -280,73 +284,116 @@ where
 }
 
 use futures::stream::{FuturesUnordered, StreamExt};
+use tokio::sync::mpsc::Sender;
 
-
-async fn import(pool: &SqlitePool, directory: &Path) -> anyhow::Result<i32> {
+async fn import(pool: Arc<SqlitePool>, directory: &Path) -> anyhow::Result<i32> {
 
     // Attempt to read the directory
     let mut entries = fs::read_dir(directory).await?; //.await.map_err(|_| "could not read files");
     let mut count: i32 = 0;
 
+    let mut task_queue: Vec<(PathBuf, i64)> = Vec::new();
     let tasks = FuturesUnordered::new();
+    let (tx, mut rx) = mpsc::channel(100_000);
+
 
     while let Some(entry) = entries.next_entry().await? {
-        let mut epigrams: Vec<EpigramInsert> = Vec::new();
         //let entry = entry;
         let path = entry.path();
 
         // Only process files, not directories
         if path.is_file() {
             let bucket_name = path.file_stem().unwrap().to_str().unwrap().to_string();
-            let bucket_id = lookup_or_add_bucket_by_name(&pool, &bucket_name).await.unwrap();
+            let bucket_id = lookup_or_add_bucket_by_name(&pool, &bucket_name).await?;
 
-            debug!("Processing {:?}", path);
-            if let Ok(file) = fs::File::open(&path).await {
-                let mut reader = io::BufReader::new(file);
-                let mut line = String::new();
-                let mut fortune = String::new();
-
-                loop {
-                    let num_bytes = reader.read_line(&mut line).await?;
-                    if num_bytes == 0 {
-                        break;
-                    }
-                    //debug!("Reading from file - bytes {} - line {}", num_bytes, line);
-
-                    if line == "%\n" {
-                        if !fortune.is_empty() {
-                            let epigram = fortune.trim();
-                            debug!("Parsed Epigram:\n{}", epigram);
-                            epigrams.push(EpigramInsert {
-                                epigram_uuid: Uuid::new_v4().to_string(),
-                                bucket_id: bucket_id,
-                                created_date: Local::now().to_string(),
-                                modified_date: Local::now().to_string(),
-                                content: epigram.parse()?,
-                            });
-                            //add_epigram(&pool, epigram.parse().unwrap(), bucket_id).await?;
-                            fortune.clear();
-                            line.clear();
-                            count += 1;
-                        }
-                    } else {
-                        fortune.push_str(&line);
-                        line.clear();
-                        //fortune.push('\n');
-                        // Process data line
-                    }
-                }
-            } else {
-                eprintln!("could not read file: {}", path.display());
-            }
+            task_queue.push((path, bucket_id));
         }
-        tasks.push(add_epigrams(&pool, epigrams));
     }
 
+    let _ = task_queue.iter().for_each(|(path, bucket_id)| {
+        tasks.push(import_bucket(path, bucket_id, tx.clone()));
+    });
 
+    drop(tx);
+
+
+    let future = task::spawn(async move {
+        // Batch processor task
+        let mut buffer = Vec::new();
+
+        while let Some(item) = rx.recv().await {
+            buffer.push(item);
+            if buffer.len() >= 1000 {
+                add_epigrams(&pool, &buffer).await.unwrap();
+                //insert_batch(&db_pool, &buffer).await?;
+                buffer.clear();
+            }
+        }
+
+        // Insert any remaining items that didn't complete a full batch
+        if !buffer.is_empty() {
+            add_epigrams(&pool, &buffer).await.unwrap();
+            //insert_batch(&db_pool, &buffer).await?;
+        }
+    });
+
+    // todo!("get count")
     tasks.for_each(|result| async move {
+        count = count + result.unwrap();
         debug!("Completed task!");
     }).await;
 
+
+    //add_epigrams(&pool, Arc::clone(&epigrams_arc)).await?;
+    future.await?;
+
+    Ok(count)
+}
+
+async fn import_bucket(path: &PathBuf, bucket_id: &i64, tx: Sender<EpigramInsert>) -> anyhow::Result<i32> {
+    let mut count: i32 = 0;
+    //let mut epigrams: Vec<EpigramInsert> = Vec::new();
+    debug!("Processing {:?}", path);
+    if let Ok(file) = fs::File::open(&path).await {
+        let mut reader = io::BufReader::new(file);
+        let mut line = String::new();
+        let mut fortune = String::new();
+
+        loop {
+            let num_bytes = reader.read_line(&mut line).await?;
+            if num_bytes == 0 {
+                break;
+            }
+            //debug!("Reading from file - bytes {} - line {}", num_bytes, line);
+
+            if line == "%\n" {
+                if !fortune.is_empty() {
+                    let epigram = fortune.trim();
+                    debug!("Parsed Epigram:\n{}", epigram);
+                    {
+                        //let mut epigrams = tx.lock().await;
+                        tx.send(EpigramInsert {
+                            epigram_uuid: Uuid::new_v4().to_string(),
+                            bucket_id: *bucket_id,
+                            created_date: Local::now().to_string(),
+                            modified_date: Local::now().to_string(),
+                            content: epigram.parse()?,
+                        }).await?;
+                    }
+                    //add_epigram(&pool, epigram.parse().unwrap(), bucket_id).await?;
+                    fortune.clear();
+                    line.clear();
+                    count += 1;
+                }
+            } else {
+                fortune.push_str(&line);
+                line.clear();
+                //fortune.push('\n');
+                // Process data line
+            }
+        }
+    }
+    //add_epigrams(&pool, epigrams).await?;
+    drop(tx);
     Ok(count)
 }

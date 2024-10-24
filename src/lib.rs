@@ -6,13 +6,11 @@ use log::debug;
 
 use crate::models::{BucketSort, Epigram};
 use chrono::offset::Local;
-use dotenvy::dotenv;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use sqlx::sqlite::SqlitePool;
 use sqlx::{Error, QueryBuilder, Sqlite};
 use std::env;
-use uuid::Uuid;
 
 pub async fn get_test_pool() -> anyhow::Result<SqlitePool> {
     //let database_url = dotenv!("DATABASE_URL");
@@ -71,7 +69,14 @@ fn random_weighted_index(weights: &[f64]) -> usize {
 pub async fn get_random_epigram(pool: &SqlitePool, bucket_name: Option<&String>) -> anyhow::Result<(String, String)> {
     let effective_bucket: BucketSort;
     if bucket_name.is_none() {
-        effective_bucket = get_weighted_bucket(&pool).await?.unwrap();
+        effective_bucket = get_weighted_bucket(&pool).await?.unwrap_or_else(|| {
+            BucketSort {
+                bucket_id: 1,
+                name: "".to_string(),
+                epigram_count: 0.0,
+                item_weight: 0,
+            }
+        });
     } else {
         effective_bucket = lookup_bucket_by_name(&pool, bucket_name.unwrap()).await?;
     }
@@ -341,31 +346,23 @@ pub struct EpigramInsert {
     pub content: String,
 }
 
-pub async fn add_epigrams(pool: &SqlitePool, epigrams: Vec<EpigramInsert>) -> anyhow::Result<()> {
-    //let uuid = Uuid::new_v4();
-    //let created_date: String = Local::now().to_string();
-    //let modified_date: String = Local::now().to_string();
+pub async fn add_epigrams(pool: &SqlitePool, epigrams: &Vec<EpigramInsert>) -> anyhow::Result<()> {
+    let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+        "insert into epigram (epigram_uuid, bucket_id, created_date, modified_date, content) "
+    );
 
-    const BATCH_SIZE: usize = 1000;
-
-    for epigram_chunk in epigrams.chunks(BATCH_SIZE) {
-        let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
-            "insert into epigram (epigram_uuid, bucket_id, created_date, modified_date, content) "
-        );
-
-        query_builder.push_values(epigram_chunk.iter(), |mut b, epigram| {
-            b.push_bind(&epigram.epigram_uuid)
-                .push_bind(epigram.bucket_id)
-                .push_bind(&epigram.created_date)
-                .push_bind(&epigram.modified_date)
-                .push_bind(&epigram.content);
-        });
+    query_builder.push_values(epigrams.iter(), |mut b, epigram| {
+        b.push_bind(&epigram.epigram_uuid)
+            .push_bind(epigram.bucket_id)
+            .push_bind(&epigram.created_date)
+            .push_bind(&epigram.modified_date)
+            .push_bind(&epigram.content);
+    });
 
 
-        let mut query = query_builder.build();
+    let query = query_builder.build();
 
-        query.execute(pool).await?;
-    }
+    query.execute(pool).await?;
 
     Ok(())
 }
