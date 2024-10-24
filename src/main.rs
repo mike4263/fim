@@ -17,20 +17,40 @@ struct Cli {
     #[arg(long, short)]
     bucket: Option<String>,
 
-    /// Your OpenAI API Token
-    #[arg(long, short)]
-    openai: Option<String>,
-
-    /// Query ChatGPT to get context about this epigram
-    #[arg(long, action)]
-    gpt: bool,
-
     #[command(subcommand)]
     command: Option<Commands>,
+
+    /// Delete the DB
+    #[arg(long)]
+    delete: bool,
+
+    /// Print out the list of files which would be searched, but don't print a fortune.
+    #[arg(short = 'f')]
+    print_buckets: bool,
+
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Initialize the DB with the fortunes from GitHub
+    Init {
+        /// Delete the DB
+        #[arg(long)]
+        delete: bool,
+
+        /// whether to initialize an empty db (skip Git import)
+        #[arg(long)]
+        empty: bool,
+
+        /// The GitHub repo to download from
+        #[arg(long, default_value = "https://github.com/mike4263/fim-content/")]
+        git_url: String,
+
+        /// The GitHub repo to download from
+        #[arg(long, default_value = "legacy_fortunes")]
+        git_subdir: String,
+    },
+
     /// Import data from a specified source
     Import {
         #[arg(value_enum)]
@@ -39,28 +59,23 @@ enum Commands {
         /// Path to the file or directory to import
         #[arg(value_name = "PATH")]
         path: String,
+
     },
 
     /// Generate context
-    Context {
-        /// Your OpenAI API Token
-        #[arg(long, value_name = "TOKEN")]
-        openai: Option<String>,
-    },
+    Chat {},
 
     /// Save the previous impression into favorites
-    Favorite {},
+    Save {},
 
-    /// setup the database with loaded fortunes
-    Setup {},
-
-    /// Chat with the model
-    Chat {},
+    /// Upgrade the DB to the latest version
+    Migrate {},
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, )]
 enum SourceType {
-    Fortune,
+    Directory,
+    Git,
 }
 
 
@@ -69,12 +84,19 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let fim_db = &env::var("FIM_DB_URL").expect("Please define FIM_DB_URL to a path for the FIM database").to_string();
+
+    if cli.delete {
+        println!("Deleting {}", fim_db);
+        delete_file_if_exists(&fim_db)?;
+    }
+
+    // just touch it prior to opening
     OpenOptions::new().create(true).write(true).open(fim_db).await?;
 
     let fim_db_prefix = "sqlite://";
     let results = format!("{}{}", fim_db_prefix, fim_db);
 
-    println!("Opening DB {}", results);
+    debug!("Opening DB {}", results);
 
     let pool = SqlitePool::connect(&results).await?;
 
@@ -84,20 +106,35 @@ async fn main() -> anyhow::Result<()> {
         .parse_env("RUST_LOG")
         .init();
 
+    debug!("CLI: {:?}", &cli);
 
     match &cli.command {
+        Some(Commands::Init { delete, empty, git_url, git_subdir }) => {
+            //println!("Configuring database");
+            let _ = wait_with_spinner(run_migrations(&pool), format!("Configuring FIM Database")).await?;
+
+            if !empty {
+                let dir = tempdir()?;
+
+                let _ = wait_with_spinner(clone_content_repo(dir.path(), git_url), format!("Cloning Git Repository - {}", git_url)).await?;
+
+                let mut full_path: PathBuf = dir.path().to_path_buf();
+                full_path.push(git_subdir);
+
+                let pool_clone = Arc::new(pool);
+                let count = wait_with_spinner(import(pool_clone.clone(), full_path.as_path()), format!("Importing from Git")).await?;
+                println!("Imported {} epigrams", count);
+            }
+        }
         Some(Commands::Import { source_type, path }) => {
             println!("Configuring database");
             let _ = run_migrations(&pool).await?;
 
-            //println!("Importing {:?} from path: {}", source_type, path);
-
-            //let count = import(&pool, Path::new(path)).await?;
             let pool_clone = Arc::new(pool);
             let count = wait_with_spinner(import(pool_clone.clone(), Path::new(path)), format!("Importing {:?} from path: {}", source_type, path)).await?;
             println!("Imported {} epigrams", count);
         }
-        Some(Commands::Context { openai }) => {
+        Some(Commands::Chat {}) => {
             let epigram_id = get_last_epigram(&pool).await?;
 
             let character = "-";
@@ -118,14 +155,10 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
-        Some(Commands::Favorite {}) => {
+        Some(Commands::Save {}) => {
             favorite(&pool).await;
         }
-        Some(Commands::Chat {}) => {
-            println!("Starting chat...");
-            // Handle chat functionality here
-        }
-        Some(Commands::Setup {}) => {
+        Some(Commands::Migrate {}) => {
             println!("Configuring database");
             let _results = run_migrations(&pool).await?;
         }
@@ -140,6 +173,34 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+use git2::Repository;
+async fn clone_content_repo(path: &Path, url: &str) -> anyhow::Result<()> {
+    match Repository::clone(url, path) {
+        Ok(repo) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("failed to clone repo: {}", e)),
+    }
+    //Ok(())
+}
+
+
+fn delete_file_if_exists(file_path: &str) -> std::io::Result<()> {
+    match std::fs::remove_file(file_path) {
+        Ok(_) => {
+            println!("File '{}' deleted successfully.", file_path);
+            Ok(())
+        }
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // The file was not found, ignore the error
+            println!("File '{}' does not exist, ignoring.", file_path);
+            Ok(())
+        }
+        Err(e) => {
+            // Any other error, propagate it
+            Err(e)
+        }
+    }
 }
 
 async fn get_impression(pool: &SqlitePool, bucket: Option<&String>) -> anyhow::Result<()> {
@@ -252,7 +313,7 @@ where
                 "▪ ▪ ▪ ▪ ▪ ",
             ]),
     );
-    pb.set_message(message);
+    pb.set_message(message.clone());
 
     // Shared notification to stop the spinner
     let notify = Arc::new(Notify::new());
@@ -265,7 +326,7 @@ where
             .unwrap()
             .block_on(async {
                 spinner_notify.notified().await;
-                //pb.finish_with_message("Done!");
+                pb.finish_with_message(message.clone());
             });
     });
 
@@ -283,6 +344,7 @@ where
 }
 
 use futures::stream::{FuturesUnordered, StreamExt};
+use tempfile::tempdir;
 use tokio::sync::mpsc::Sender;
 
 async fn import(pool: Arc<SqlitePool>, directory: &Path) -> anyhow::Result<i32> {

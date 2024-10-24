@@ -7,6 +7,7 @@ use std::{fs, io};
 // Run programs
 
 use lazy_static::lazy_static;
+use serial_test::serial;
 use std::sync::Once;
 
 lazy_static! {
@@ -51,6 +52,7 @@ fn file_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 #[test]
+#[serial]
 fn file_import_100pack() -> Result<(), Box<dyn std::error::Error>> {
     INIT.call_once(|| initialize());
 
@@ -66,6 +68,7 @@ fn file_import_100pack() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+#[serial]
 fn file_import_legacy_content() -> Result<(), Box<dyn std::error::Error>> {
     INIT.call_once(|| initialize());
 
@@ -80,6 +83,7 @@ fn file_import_legacy_content() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 #[test]
+#[serial]
 fn file_get_100_impressions() -> Result<(), Box<dyn std::error::Error>> {
     INIT.call_once(|| initialize());
 
@@ -93,6 +97,21 @@ fn file_get_100_impressions() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg("favorite");
     cmd.assert().success();
+
+    Ok(())
+}
+
+#[test]
+fn test_init() -> Result<(), Box<dyn std::error::Error>> {
+    INIT.call_once(|| initialize());
+
+    let mut cmd = Command::cargo_bin("fim")?;
+    cmd.env("FIM_DB_URL", "/app/fim-init.db");
+
+    cmd.arg("init");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 15498 epigrams"));
 
     Ok(())
 }
