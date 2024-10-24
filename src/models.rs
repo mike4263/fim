@@ -18,6 +18,7 @@ pub struct BucketSort {
 
 
 pub struct Epigram {
+    pub epigram_id: i64,
     pub epigram_uuid: String,
     pub bucket_id: Option<i64>,
     pub created_date: Option<String>,

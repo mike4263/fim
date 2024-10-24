@@ -1,5 +1,4 @@
 use fim::{add_epigrams, get_epigram, get_last_epigram, get_random_epigram, lookup_or_add_bucket_by_name, post_impression, run_migrations, save_last_epigram, EpigramInsert};
-use std::collections::VecDeque;
 
 use clap::{Parser, Subcommand};
 use env_logger::{Builder, Target};
@@ -7,7 +6,7 @@ use log::debug;
 use std::path::{Path, PathBuf};
 use textwrap::fill;
 use tokio::io;
-use tokio::{fs, stream};
+use tokio::fs;
 
 use sqlx::sqlite::SqlitePool;
 
@@ -91,22 +90,22 @@ async fn main() -> anyhow::Result<()> {
             println!("Configuring database");
             let _ = run_migrations(&pool).await?;
 
-            println!("Importing {:?} from path: {}", source_type, path);
+            //println!("Importing {:?} from path: {}", source_type, path);
 
             //let count = import(&pool, Path::new(path)).await?;
             let pool_clone = Arc::new(pool);
-            let count = wait_with_spinner(import(pool_clone.clone(), Path::new(path)), String::from("Importing fortune...")).await?;
+            let count = wait_with_spinner(import(pool_clone.clone(), Path::new(path)), format!("Importing {:?} from path: {}", source_type, path)).await?;
             println!("Imported {} epigrams", count);
         }
         Some(Commands::Context { openai }) => {
-            let epigram_uuid = get_last_epigram(&pool).await?;
+            let epigram_id = get_last_epigram(&pool).await?;
 
             let character = "-";
             let line_width = 80;
             let line = character.repeat(line_width);
 
 
-            let epigram = get_epigram(&pool, &epigram_uuid).await?;
+            let epigram = get_epigram(&pool, epigram_id).await?;
             display_epigram(&epigram, None);
             //let epigram = get_epigram(&pool, &epigram_uuid).await?;
             println!("{}\n\n{}\n", epigram.content.clone().unwrap(), line);
@@ -128,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Setup {}) => {
             println!("Configuring database");
-            let results = run_migrations(&pool).await?;
+            let _results = run_migrations(&pool).await?;
         }
         None => {
             if let Some(bucket) = &cli.bucket {
@@ -147,12 +146,12 @@ async fn get_impression(pool: &SqlitePool, bucket: Option<&String>) -> anyhow::R
     // todo!("fix these runtime errors")
     // called `Result::unwrap()` on an `Err` value: error occurred while decoding column 0: invalid utf-8 sequence of 1 bytes from index 1
     // called `Result::unwrap()` on an `Err` value: no rows returned by a query that expected to return at least one row
-    let (epigram_uuid, bucket_name) = get_random_epigram(&pool, bucket).await.unwrap();
+    let (epigram_id, bucket_name) = get_random_epigram(&pool, bucket).await.unwrap();
 
-    let epigram = get_epigram(&pool, &epigram_uuid).await?;
+    let epigram = get_epigram(&pool, epigram_id).await?;
     display_epigram(&epigram, Some(bucket_name));
 
-    post_impression(pool, &epigram_uuid, epigram.bucket_id.unwrap()).await.expect("Error posting impression");
+    post_impression(pool, epigram_id, epigram.bucket_id.unwrap()).await.expect("Error posting impression");
 
     Ok(())
 }
@@ -290,7 +289,7 @@ async fn import(pool: Arc<SqlitePool>, directory: &Path) -> anyhow::Result<i32> 
 
     // Attempt to read the directory
     let mut entries = fs::read_dir(directory).await?; //.await.map_err(|_| "could not read files");
-    let mut count: i32 = 0;
+    let count = Arc::new(Mutex::new(0));
 
     let mut task_queue: Vec<(PathBuf, i64)> = Vec::new();
     let tasks = FuturesUnordered::new();
@@ -337,17 +336,22 @@ async fn import(pool: Arc<SqlitePool>, directory: &Path) -> anyhow::Result<i32> 
         }
     });
 
-    // todo!("get count")
-    tasks.for_each(|result| async move {
-        count = count + result.unwrap();
-        debug!("Completed task!");
+    let count_clone = Arc::clone(&count);
+    tasks.for_each(|result| {
+        let count = Arc::clone(&count_clone);
+        async move {
+            let value = result.unwrap();
+            let mut count = count.lock().await;
+            *count += value;
+            debug!("Completed task! count {}", *count);
+        }
     }).await;
 
 
-    //add_epigrams(&pool, Arc::clone(&epigrams_arc)).await?;
     future.await?;
 
-    Ok(count)
+    let final_count = *count.lock().await;
+    Ok(final_count)
 }
 
 async fn import_bucket(path: &PathBuf, bucket_id: &i64, tx: Sender<EpigramInsert>) -> anyhow::Result<i32> {

@@ -11,6 +11,7 @@ use rand::Rng;
 use sqlx::sqlite::SqlitePool;
 use sqlx::{Error, QueryBuilder, Sqlite};
 use std::env;
+use uuid::Uuid;
 
 pub async fn get_test_pool() -> anyhow::Result<SqlitePool> {
     //let database_url = dotenv!("DATABASE_URL");
@@ -66,20 +67,33 @@ fn random_weighted_index(weights: &[f64]) -> usize {
     weights.len() - 1 // fallback in edge cases
 }
 
-pub async fn get_random_epigram(pool: &SqlitePool, bucket_name: Option<&String>) -> anyhow::Result<(String, String)> {
-    let effective_bucket: BucketSort;
-    if bucket_name.is_none() {
-        effective_bucket = get_weighted_bucket(&pool).await?.unwrap_or_else(|| {
-            BucketSort {
+async fn determine_effective_bucket(pool: &SqlitePool, bucket_name: Option<&String>) -> anyhow::Result<BucketSort> {
+    let effective_bucket = if let Some(name) = bucket_name {
+        lookup_bucket_by_name(&pool, name).await?
+    } else {
+        // Try to get the weighted bucket, and fall back to a default if there's an error
+        match get_weighted_bucket(&pool).await {
+            Ok(Some(bucket)) => bucket,
+            Ok(None) => BucketSort {
                 bucket_id: 1,
                 name: "".to_string(),
-                epigram_count: 0.0,
+                epigram_count: 1.0,
                 item_weight: 0,
-            }
-        });
-    } else {
-        effective_bucket = lookup_bucket_by_name(&pool, bucket_name.unwrap()).await?;
-    }
+            },
+            Err(_) => BucketSort {
+                bucket_id: 1,
+                name: "".to_string(),
+                epigram_count: 1.0,
+                item_weight: 0,
+            },
+        }
+    };
+
+    Ok(effective_bucket)
+}
+
+pub async fn get_random_epigram(pool: &SqlitePool, bucket_name: Option<&String>) -> anyhow::Result<(i64, String)> {
+    let effective_bucket: BucketSort = determine_effective_bucket(&pool, bucket_name).await?;
 
     let mut rng = rand::thread_rng();
 
@@ -89,7 +103,7 @@ pub async fn get_random_epigram(pool: &SqlitePool, bucket_name: Option<&String>)
 
     let rec = sqlx::query!(
         r#"
-select e.epigram_uuid, b.name as bucket_name from epigram e
+select e.epigram_id, e.epigram_uuid, b.name as bucket_name from epigram e
                        inner join bucket b
                        on e.bucket_id = b.bucket_id
 
@@ -104,20 +118,21 @@ offset ?4
 
     debug!("rec is {:?}", rec);
 
-    Ok((rec.epigram_uuid, rec.bucket_name.unwrap()))
+    Ok((rec.epigram_id, rec.bucket_name.unwrap()))
 }
 
-pub async fn get_epigram(pool: &SqlitePool, epigram_uuid: &String) -> anyhow::Result<Epigram> {
+pub async fn get_epigram(pool: &SqlitePool, epigram_id: i64) -> anyhow::Result<Epigram> {
     let rec = sqlx::query!(
         r#"
 select e.* from epigram e
-         where e.epigram_uuid = ?1
-        "#, epigram_uuid
+         where e.epigram_id = ?1
+        "#, epigram_id
     ).fetch_one(pool).await?;
 
     debug!("rec is {:?}", rec);
 
     let epigram_result = Epigram {
+        epigram_id: rec.epigram_id,
         epigram_uuid: rec.epigram_uuid,
         bucket_id: rec.bucket_id,
         created_date: rec.created_date,
@@ -143,9 +158,9 @@ async fn test_epigram_and_save() {
     let pool = get_test_pool().await.expect("Error getting test pool");
     let results = get_random_epigram(&pool, None).await.unwrap();
 
-    let epigram = get_epigram(&pool, &results.0).await.unwrap();
+    let epigram = get_epigram(&pool, results.0).await.unwrap();
 
-    post_impression(&pool, &results.0, epigram.bucket_id.unwrap()).await.expect("Failed to update impression");
+    post_impression(&pool, results.0, epigram.bucket_id.unwrap()).await.expect("Failed to update impression");
 
     save_last_epigram(&pool).await.expect("Error saving last epigram");
     //assert_eq!(results.0.epigram_uuid, saved_result.epigram_uuid);
@@ -153,10 +168,10 @@ async fn test_epigram_and_save() {
 }
 
 
-pub async fn get_last_epigram(pool: &SqlitePool) -> anyhow::Result<String> {
+pub async fn get_last_epigram(pool: &SqlitePool) -> anyhow::Result<i64> {
     let rec = sqlx::query!(
         r#"
-select e.epigram_uuid from epigram e
+select e.epigram_id from epigram e
                        inner join bucket b
                        on e.bucket_id = b.bucket_id
 order by last_impression_date desc
@@ -166,7 +181,7 @@ limit 1
 
     debug!("rec is {:?}", rec);
 
-    Ok(rec.epigram_uuid)
+    Ok(rec.epigram_id)
 }
 pub async fn save_last_epigram(pool: &SqlitePool) -> anyhow::Result<()> {
     let last_epigram_uuid = get_last_epigram(&pool).await?;
@@ -249,23 +264,23 @@ async fn test_lookup_for_art() {
 }
 
 
-pub async fn post_impression(pool: &SqlitePool, last_epigram_uuid: &String, bucket_id: i64) -> anyhow::Result<()> {
+pub async fn post_impression(pool: &SqlitePool, last_epigram_id: i64, bucket_id: i64) -> anyhow::Result<()> {
     let impression_date_dt: String = Local::now().to_string();
 
     //epigram_obj.last_impression_date = Some(impression_date_dt.clone().to_string());
     let rows_affected = sqlx::query!(
         r#"
         update epigram set last_impression_date = ?1
-        where epigram_uuid = ?2
-        "#, impression_date_dt, last_epigram_uuid
+        where epigram_id = ?2
+        "#, impression_date_dt, last_epigram_id
     ).execute(pool).await?.rows_affected();
     debug!("Updated rows with impression date : {} ", rows_affected);
 
     let row_id = sqlx::query!(
         r#"
-        insert into impression (bucket_id, epigram_uuid, impression_date)
+        insert into impression (bucket_id, epigram_id, impression_date)
 values (?1, ?2, ?3)
-        "#, bucket_id, last_epigram_uuid, impression_date_dt
+        "#, bucket_id, last_epigram_id, impression_date_dt
     ).execute(pool).await?.last_insert_rowid();
     debug!("Inserted row id : {} ", row_id);
 
