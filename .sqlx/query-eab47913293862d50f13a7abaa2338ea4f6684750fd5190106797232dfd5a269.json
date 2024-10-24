@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\nselect bs.bucket_id, bs.name, bs.epigram_count, bs.item_weight, bs.epigram_weight,\nbs.padded_impressions from bucket_sort bs\nwhere name = ?1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "bucket_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "epigram_count",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "item_weight",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "epigram_weight",
+        "ordinal": 4,
+        "type_info": "Float"
+      },
+      {
+        "name": "padded_impressions",
+        "ordinal": 5,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "eab47913293862d50f13a7abaa2338ea4f6684750fd5190106797232dfd5a269"
+}

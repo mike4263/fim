@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT bucket_id, effective_impression_percentage FROM impressions_calculated WHERE impression_delta >= 0\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "bucket_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "effective_impression_percentage",
+        "ordinal": 1,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "02e47afb4af971a43001a7e2949c9cee670cefb19c71472f703d28559fc82acc"
+}

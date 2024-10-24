@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        update epigram set favorite = 1\n        where epigram_uuid = ?1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "4782051eef8a19c82ec6e468cf83d0d4f40899506b0d7385eb4ba0ff2ec28ed0"
+}

@@ -1,4 +1,5 @@
 -- Add migration script here
+drop view if exists bucket_sort;
 create view bucket_sort as
 select b.bucket_id,
        b.name,

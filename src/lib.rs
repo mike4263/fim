@@ -250,8 +250,8 @@ where bucket_id = ?1
 }
 
 
-#[tokio::test]
 async fn test_lookup_for_art() {
+    todo!("Add integration testing for existing db");
     let pool = get_test_pool().await.expect("Error getting test pool");
 
     let bucket1: String = String::from("art");

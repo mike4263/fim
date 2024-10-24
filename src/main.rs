@@ -5,8 +5,8 @@ use env_logger::{Builder, Target};
 use log::debug;
 use std::path::{Path, PathBuf};
 use textwrap::fill;
-use tokio::io;
 use tokio::fs;
+use tokio::io;
 
 use sqlx::sqlite::SqlitePool;
 
@@ -68,7 +68,7 @@ enum SourceType {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let fim_db = &env::var("FIM_DB_URL")?.to_string();
+    let fim_db = &env::var("FIM_DB_URL").expect("Please define FIM_DB_URL to a path for the FIM database").to_string();
     OpenOptions::new().create(true).write(true).open(fim_db).await?;
 
     let fim_db_prefix = "sqlite://";

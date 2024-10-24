@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        update epigram set last_impression_date = ?1\n        where epigram_id = ?2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "71d24f2963ce899f1324ef0ec94c394fe9deee20e70ff493ee9bf13b135acd8e"
+}

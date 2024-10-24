@@ -1,4 +1,5 @@
 -- Add migration script here
+drop view if exists impressions_calculated;
 create view impressions_calculated as
 select calc.*, (expected_weighted_percentage + impression_delta) as effective_impression_percentage
 from (select bs.bucket_id,

@@ -1,4 +1,5 @@
 -- Add migration script here
+drop view if exists total_counts;
 create view total_counts as
 select (total_impression_t.total_padded_impressions * 1.0) as total_padded_impressions,
        (total_epigram_t.total_epigrams * 1.0)              as total_epigrams,

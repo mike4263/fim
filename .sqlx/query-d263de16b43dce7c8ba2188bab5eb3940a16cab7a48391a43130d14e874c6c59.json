@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        insert into impression (bucket_id, epigram_id, impression_date)\nvalues (?1, ?2, ?3)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d263de16b43dce7c8ba2188bab5eb3940a16cab7a48391a43130d14e874c6c59"
+}

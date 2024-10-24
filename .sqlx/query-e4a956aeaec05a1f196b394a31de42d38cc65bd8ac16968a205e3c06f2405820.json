@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\nselect e.epigram_id, e.epigram_uuid, b.name as bucket_name from epigram e\n                       inner join bucket b\n                       on e.bucket_id = b.bucket_id\n\n                                         where\n                                         --length(content) < ?1\n                                         b.bucket_id = ?2\norder by last_impression_date asc\nlimit ?3\noffset ?4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "epigram_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "epigram_uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bucket_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e4a956aeaec05a1f196b394a31de42d38cc65bd8ac16968a205e3c06f2405820"
+}

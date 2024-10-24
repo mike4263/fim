@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "\nselect e.* from epigram e\n         where e.epigram_id = ?1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "epigram_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "epigram_uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bucket_id",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_date",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "modified_date",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_impression_date",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "content_source",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "content_text",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "content",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "source_url",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "action_url",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "context_url",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "gpt_completion",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "favorite",
+        "ordinal": 13,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d020dedbae83c15f0a0f12dea3c436cc44acab4335aff6eb3d16f113e25cf61f"
+}

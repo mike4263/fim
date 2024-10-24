@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\nselect e.epigram_id from epigram e\n                       inner join bucket b\n                       on e.bucket_id = b.bucket_id\norder by last_impression_date desc\nlimit 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "epigram_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "87ecdcbe27778237c72bfbff51e49e8fc0d0255b0cd74497a57d863d1907393c"
+}

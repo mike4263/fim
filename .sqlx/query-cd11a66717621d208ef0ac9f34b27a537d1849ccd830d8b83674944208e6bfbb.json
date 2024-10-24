@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        insert into bucket (name, item_weight)\nvalues (?1, ?2)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "cd11a66717621d208ef0ac9f34b27a537d1849ccd830d8b83674944208e6bfbb"
+}
